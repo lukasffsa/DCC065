@@ -26,14 +26,9 @@ scene = new THREE.Scene();
 renderer = initRenderer();    
 material = setDefaultMaterial(); 
 light = initDefaultBasicLight(scene); 
-camera = initCamera(new THREE.Vector3(0, 100, -600)); 
-scene.add(camera); 
-camera.lookAt(0, 100, 0);
-orbit = new OrbitControls( camera, renderer.domElement ); 
 
 // ================================ FOG  ================================ 
-scene.fog = new THREE.Fog( 0xcccccc, 300, 700)
-// ================================ FOG  ================================ 
+scene.fog = new THREE.Fog( 0xcccccc, 700, 1000);
 
 // visualização de eixos (comentar tudo depois)
 const axesHelper = new THREE.AxesHelper(100); 
@@ -42,7 +37,7 @@ scene.add(axesHelper);
 // Listen window size changes
 window.addEventListener( 'resize', function(){onWindowResize(camera, renderer)}, false );
 
-// ================================ Plano  ================================ 
+// ================================ Plano ================================ 
 const plane_width = 1000;
 const plane_height = 1000;
 
@@ -50,7 +45,7 @@ const grassColor = "rgb(34, 139, 34)";
 const meshColor = "rgb(50, 50, 50)";
 let plane = createGroundPlaneWired(plane_width, plane_height, 10, 10, 3, grassColor, meshColor);
 scene.add(plane);
-// ================================ Avião  ================================ 
+// ================================ Avião ================================ 
 
 // airplane
 function createAirplane(){
@@ -58,7 +53,7 @@ function createAirplane(){
     let airplaneGeometry = new THREE.CylinderGeometry(5, 3, 70, 32);
     let airplane = new THREE.Mesh(airplaneGeometry, airmaterial);
 
-    airplane.position.set(0.0, 50.0, +400);
+    airplane.position.set(0.0, 100, +400);
     airplane.rotateX(THREE.MathUtils.degToRad(90));
     airplane.rotateZ(THREE.MathUtils.degToRad(180));
 
@@ -102,7 +97,7 @@ function createAirplane(){
 let airplane1 = createAirplane();
 scene.add(airplane1);
 
-// ================================ Árvores  ================================ 
+// ================================ Árvores ================================ 
 function createTree(x, z){
     // stem
     const stem_height = 10;
@@ -174,6 +169,21 @@ let controls = new InfoBox();
   controls.show();
 
 const speed = -1.0;
+
+// ================================ Camera ================================ 
+
+const cameraBehind = 180;
+const cameraHeigth = 90;
+
+camera = initCamera(new THREE.Vector3(0, 100, -600)); 
+camera.position.set(
+    airplane1.position.x,
+    airplane1.position.y + cameraHeigth,
+    airplane1.position.z + cameraBehind
+);
+scene.add(camera); 
+camera.lookAt(airplane1.position);;
+orbit = new OrbitControls( camera, renderer.domElement ); 
 
 render();
 function render()
