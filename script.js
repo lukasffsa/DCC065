@@ -50,7 +50,7 @@ const grassColor = "rgb(34, 139, 34)";
 const meshColor = "rgb(50, 50, 50)";
 let plane = createGroundPlaneWired(plane_width, plane_height, 10, 10, 3, grassColor, meshColor);
 scene.add(plane);
-// ================================ Plano  ================================ 
+// ================================ Avião  ================================ 
 
 // airplane
 function createAirplane(){
@@ -70,7 +70,6 @@ function createAirplane(){
     let wing = new THREE.Mesh(wingGeometry, airmaterial);
     wing.position.set(0, 10, 0); 
     wing.rotateX(THREE.MathUtils.degToRad(90));
-    // wing.rotateZ(THREE.MathUtils.degToRad(90));
 
     let headGeometry = new THREE.SphereGeometry( 5, 32, 16, 0, Math.PI*2, 0, Math.PI*0.5 );
     let headMaterial = new THREE.MeshBasicMaterial( { color: 'orange' } );
@@ -103,7 +102,7 @@ function createAirplane(){
 let airplane1 = createAirplane();
 scene.add(airplane1);
 
-// tree
+// ================================ Árvores  ================================ 
 function createTree(x, z){
     // stem
     const stem_height = 10;
@@ -146,6 +145,8 @@ function createTree(x, z){
 
     return stem
 }
+
+// ================================ Cenário  ================================ 
 
 for (let i = 0; i < 12; i++) {
     const minX = -plane_width / 2
