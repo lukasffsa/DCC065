@@ -86,9 +86,8 @@ function createAirplane(){
     let airplaneGeometry = new THREE.CylinderGeometry(5, 3, 70, 32);
     let airplane = new THREE.Mesh(airplaneGeometry, airmaterial);
 
-    airplane.position.set(0.0, 100, +400);
+    airplane.position.set(0.0, 100, -400);
     airplane.rotateX(THREE.MathUtils.degToRad(90));
-    airplane.rotateZ(THREE.MathUtils.degToRad(180));
 
     let wingMaterial = new THREE.MeshBasicMaterial({color: "orange"});
     let wingShape = new THREE.Shape();
@@ -241,10 +240,10 @@ camera = initCamera(new THREE.Vector3(0, 100, -600));
 camera.position.set(
     airplane1.position.x,
     airplane1.position.y + cameraHeigth,
-    airplane1.position.z + cameraBehind
+    airplane1.position.z - cameraBehind
 );
 scene.add(camera); 
-camera.lookAt(airplane1.position);;
+camera.lookAt(0,0,0);
 orbit = new OrbitControls( camera, renderer.domElement ); 
 
 render();
@@ -252,7 +251,7 @@ function render()
 {
   stats.update();
 
-  // plane.position.z += speed;  
+//   plane.position.z += -speed;  
   airplane1.propeller.rotation.z += 10;
   requestAnimationFrame(render);
   renderer.render(scene, camera) // Render scene
