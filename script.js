@@ -249,44 +249,72 @@ camera.lookAt(0,0,0);
 
 var flyCamera = new FlyControls( airplane1, renderer.domElement );
 
-  flyCamera.movementSpeed = 1;
+  flyCamera.movementSpeed = 10
   flyCamera.domElement = renderer.domElement;
-  flyCamera.rollSpeed = -0.5;
+  flyCamera.rollSpeed = -20;
   flyCamera.autoForward = true;
   flyCamera.dragToLook = false;
   const clock = new THREE.Clock();
 
-    // Obter coordenadas do mouse
-
-let mouse = { x: 0, y: 0 };
+// Obter coordenadas do mouse
+let mouse = new THREE.Vector2();
 
 window.addEventListener('mousemove', (event) => {
-    mouse.x = event.clientX;
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 });
+
+const raycaster = new THREE.Raycaster();
+
+// plano horizontal (altura do avião)
+const planeY = airplane1.position.y;
+const movementPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeY);
 
 const lerpConfig = {
     destination: new THREE.Vector3(mouse.x, airplane1.position.y ,airplane1.position.z),
-    alpha: 0.5,
+    alpha: 0.1,
     move: true
   }
 
-function update() {
+function updateMove() {
     let delta = clock.getDelta();
 
-    // Salva rotação ANTES do controle
-    let prevQuaternion = airplane1.quaternion.clone();
+    // ================= ALVO =================
+    raycaster.setFromCamera(mouse, camera);
 
-    flyCamera.update(delta);
+    let targetPoint = new THREE.Vector3();
+    raycaster.ray.intersectPlane(movementPlane, targetPoint);
 
-    // Converte rotação antiga e nova pra Euler
-    let prevEuler = new THREE.Euler().setFromQuaternion(prevQuaternion);
-    let newEuler  = new THREE.Euler().setFromQuaternion(airplane1.quaternion);
+    if (!targetPoint) return;
 
-    newEuler.x = prevEuler.x; // mantém sua rotação original
-    newEuler.z = prevEuler.z; // mantém sua rotação original
+    // ================= DIREÇÃO (MUNDO) =================
+    let direction = targetPoint.clone().sub(airplane1.position);
 
-    // Aplica de volta
-    airplane1.quaternion.setFromEuler(newEuler);
+    // ================= YAW (somente eixo Y) =================
+    let targetAngle = Math.atan2(direction.x, direction.z);
+
+    // suavização
+    let currentAngle = airplane1.rotation.y;
+    airplane1.rotation.y += (targetAngle - currentAngle) * 0.05;
+
+    // ================= ESPAÇO LOCAL =================
+    let localTarget = airplane1.worldToLocal(targetPoint.clone());
+
+    // ================= ROLL (somente eixo Z) =================
+    let maxRoll = Math.PI / 6; // 30 graus
+
+    let targetRoll = THREE.MathUtils.clamp(-localTarget.x * 0.002, -maxRoll, maxRoll);
+
+    // suavização do roll
+    airplane1.rotation.z += (-targetRoll - airplane1.rotation.z) * 0.1;
+
+    raycaster.setFromCamera(mouse, camera);
+
+    raycaster.ray.intersectPlane(movementPlane, targetPoint);
+
+    if (targetPoint) {
+        lerpConfig.destination.copy(targetPoint);
+    }
 }
 
  // ================================ RENDERER ================================  
@@ -295,7 +323,7 @@ render();
 function render()
 {
 //   stats.update();
-  update();
+  updateMove();
   
   airplane1.propeller.rotation.z += 10;
 
