@@ -1,4 +1,5 @@
 import * as THREE from  'three';
+import { FlyControls } from '../build/jsm/controls/FlyControls.js';
 import GUI from '../libs/util/dat.gui.module.js';
 import { OrbitControls } from '../build/jsm/controls/OrbitControls.js';
 import {initRenderer, 
@@ -20,7 +21,7 @@ stats.dom.style.left = '30px';
 
 // pra não ter que mexer com o html
 document.body.appendChild( stats.dom );
-// ================================ CONTADOR DE FPS  ================================ 
+// ================================ INICIANDO VARIÁVEIS  ================================ 
 
 let scene, renderer, camera, material, light, orbit;
 scene = new THREE.Scene();
@@ -28,11 +29,11 @@ scene.background = new THREE.Color("rgb(175,207,220)");
 renderer = initRenderer();    
 material = setDefaultMaterial(); 
 light = initDefaultBasicLight(scene); 
-
+scene.add(light)
 
 // ================================ Plano ================================ 
-const plane_width = 1000;
-const plane_height = 1000;
+const plane_width = 2000;
+const plane_height = 2000;
 
 const grassColor = "rgb(34, 139, 34)";
 const meshColor = "rgb(50, 50, 50)";
@@ -62,7 +63,6 @@ function buildInterface() {
          scene.fog.near = value;
       });
 
-
 }
 
 buildInterface();
@@ -78,7 +78,7 @@ scene.add(axesHelper);
 // Listen window size changes
 window.addEventListener( 'resize', function(){onWindowResize(camera, renderer)}, false );
 
-// ================================ Avião ================================ 
+// ================================ AVIÃO ================================ 
 
 // airplane
 function createAirplane(){
@@ -86,7 +86,7 @@ function createAirplane(){
     let airplaneGeometry = new THREE.CylinderGeometry(5, 3, 70, 32);
     let airplane = new THREE.Mesh(airplaneGeometry, airmaterial);
 
-    airplane.position.set(0.0, 100, -400);
+    airplane.position.set(0.0, 100, -800);
     airplane.rotateX(THREE.MathUtils.degToRad(90));
 
     let wingMaterial = new THREE.MeshBasicMaterial({color: "orange"});
@@ -158,7 +158,7 @@ function createAirplane(){
 let airplane1 = createAirplane();
 scene.add(airplane1);
 
-// ================================ Árvores ================================ 
+// ================================ ÁRVORES ================================ 
 function createTree(x, z){
     // stem
     const stem_height = 10;
@@ -202,7 +202,7 @@ function createTree(x, z){
     return stem
 }
 
-// ================================ Cenário  ================================ 
+// ================================ CENÁRIO  ================================ 
 
 for (let i = 0; i < 12; i++) {
     const minX = -plane_width / 2
@@ -220,20 +220,20 @@ for (let i = 0; i < 12; i++) {
 }
 
 // Use this to show information onscreen
-let controls = new InfoBox();
-  controls.add("Basic Scene");
-  controls.addParagraph();
-  controls.add("Use mouse to interact:");
-  controls.add("* Left button to rotate");
-  controls.add("* Right button to translate (pan)");
-  controls.add("* Scroll to zoom in/out.");
-  controls.show();
+// let controls = new InfoBox();
+//   controls.add("Basic Scene");
+//   controls.addParagraph();
+//   controls.add("Use mouse to interact:");
+//   controls.add("* Left button to rotate");
+//   controls.add("* Right button to translate (pan)");
+//   controls.add("* Scroll to zoom in/out.");
+//   controls.show();
 
 const speed = -1.0;
 
-// ================================ Camera ================================ 
+// ================================ CAMERA ================================ 
 
-const cameraBehind = 180;
+const cameraBehind = 210;
 const cameraHeigth = 90;
 
 camera = initCamera(new THREE.Vector3(0, 100, -600)); 
@@ -244,15 +244,62 @@ camera.position.set(
 );
 scene.add(camera); 
 camera.lookAt(0,0,0);
-orbit = new OrbitControls( camera, renderer.domElement ); 
+
+// ================================ MOVIMENTO DO AVIÃO ================================ 
+
+var flyCamera = new FlyControls( airplane1, renderer.domElement );
+
+  flyCamera.movementSpeed = 1;
+  flyCamera.domElement = renderer.domElement;
+  flyCamera.rollSpeed = -0.5;
+  flyCamera.autoForward = true;
+  flyCamera.dragToLook = false;
+  const clock = new THREE.Clock();
+
+    // Obter coordenadas do mouse
+
+let mouse = { x: 0, y: 0 };
+
+window.addEventListener('mousemove', (event) => {
+    mouse.x = event.clientX;
+});
+
+const lerpConfig = {
+    destination: new THREE.Vector3(mouse.x, airplane1.position.y ,airplane1.position.z),
+    alpha: 0.5,
+    move: true
+  }
+
+function update() {
+    let delta = clock.getDelta();
+
+    // Salva rotação ANTES do controle
+    let prevQuaternion = airplane1.quaternion.clone();
+
+    flyCamera.update(delta);
+
+    // Converte rotação antiga e nova pra Euler
+    let prevEuler = new THREE.Euler().setFromQuaternion(prevQuaternion);
+    let newEuler  = new THREE.Euler().setFromQuaternion(airplane1.quaternion);
+
+    newEuler.x = prevEuler.x; // mantém sua rotação original
+    newEuler.z = prevEuler.z; // mantém sua rotação original
+
+    // Aplica de volta
+    airplane1.quaternion.setFromEuler(newEuler);
+}
+
+ // ================================ RENDERER ================================  
 
 render();
 function render()
 {
-  stats.update();
-
-//   plane.position.z += -speed;  
+//   stats.update();
+  update();
+  
   airplane1.propeller.rotation.z += 10;
+
+  airplane1.position.lerp(lerpConfig.destination, lerpConfig.alpha);
   requestAnimationFrame(render);
   renderer.render(scene, camera) // Render scene
 }
