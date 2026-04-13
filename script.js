@@ -1,4 +1,5 @@
 import * as THREE from  'three';
+import GUI from '../libs/util/dat.gui.module.js';
 import { OrbitControls } from '../build/jsm/controls/OrbitControls.js';
 import {initRenderer, 
         initCamera,
@@ -21,19 +22,61 @@ stats.dom.style.left = '30px';
 document.body.appendChild( stats.dom );
 // ================================ CONTADOR DE FPS  ================================ 
 
-let scene, renderer, camera, material, light, orbit; 
-scene = new THREE.Scene();    
+let scene, renderer, camera, material, light, orbit;
+scene = new THREE.Scene();
+scene.background = new THREE.Color("rgb(175,207,220)");
 renderer = initRenderer();    
 material = setDefaultMaterial(); 
 light = initDefaultBasicLight(scene); 
-camera = initCamera(new THREE.Vector3(0, 100, -600)); 
-scene.add(camera); 
-camera.lookAt(0, 100, 0);
-orbit = new OrbitControls( camera, renderer.domElement ); 
 
-// ================================ FOG  ================================ 
-scene.fog = new THREE.Fog( 0xcccccc, 300, 700)
-// ================================ FOG  ================================ 
+
+// ================================ Plano ================================ 
+const plane_width = 2000;
+const plane_height = 2000;
+
+const grassColor = "rgb(34, 139, 34)";
+const red = "rgb(255, 0, 0)";
+const meshColor = "rgb(50, 50, 50)";
+
+let plane = createGroundPlaneWired(plane_width, plane_height, 10, 10, 3, grassColor, meshColor);
+scene.add(plane);
+
+let plane2 = createGroundPlaneWired(plane_width, plane_height, 10, 10, 3, red, meshColor);
+scene.add(plane2);
+plane2.position.z = plane_height
+
+const planeSize = Math.max(plane_width, plane_height);
+
+// ================================ AJUSTE DE FOG  ================================ 
+
+
+// parâmetros iniciais estratégicos
+let fogParams = {
+   color: "rgb(175,207,220)",
+   near: planeSize * 0.3,  // começa antes da borda
+   far: planeSize * 0.8    // cobre bem a borda
+};
+
+scene.fog = new THREE.Fog(fogParams.color, fogParams.near, fogParams.far);
+
+function buildInterface() {
+   var gui = new GUI();
+
+
+   gui.add(fogParams, 'near', 0, 800)
+      .name("Fog Near")
+      .onChange(function(value) {
+         scene.fog.near = value;
+      });
+
+
+}
+
+buildInterface();
+
+// // pra não ter que mexer com o html
+// document.body.appendChild( statsFog.dom );
+// scene.fog = new THREE.Fog( 0xcccccc, 700, 1000);
 
 // visualização de eixos (comentar tudo depois)
 const axesHelper = new THREE.AxesHelper(100); 
@@ -42,15 +85,7 @@ scene.add(axesHelper);
 // Listen window size changes
 window.addEventListener( 'resize', function(){onWindowResize(camera, renderer)}, false );
 
-// ================================ Plano  ================================ 
-const plane_width = 1000;
-const plane_height = 1000;
-
-const grassColor = "rgb(34, 139, 34)";
-const meshColor = "rgb(50, 50, 50)";
-let plane = createGroundPlaneWired(plane_width, plane_height, 10, 10, 3, grassColor, meshColor);
-scene.add(plane);
-// ================================ Plano  ================================ 
+// ================================ Avião ================================ 
 
 // airplane
 function createAirplane(){
@@ -58,19 +93,18 @@ function createAirplane(){
     let airplaneGeometry = new THREE.CylinderGeometry(5, 3, 70, 32);
     let airplane = new THREE.Mesh(airplaneGeometry, airmaterial);
 
-    airplane.position.set(0.0, 50.0, +400);
+    airplane.position.set(0.0, 100, -800);
     airplane.rotateX(THREE.MathUtils.degToRad(90));
-    airplane.rotateZ(THREE.MathUtils.degToRad(180));
 
+    let wingMaterial = new THREE.MeshBasicMaterial({color: "orange"});
     let wingShape = new THREE.Shape();
     wingShape.ellipse(0, 0, 45, 3.5, 0, Math.PI * 2);
     let extrudeSettings = { depth: 5, bevelEnabled: false };
     let wingGeometry = new THREE.ExtrudeGeometry(wingShape, extrudeSettings);
 
-    let wing = new THREE.Mesh(wingGeometry, airmaterial);
+    const wing = new THREE.Mesh(wingGeometry, wingMaterial);
     wing.position.set(0, 10, 0); 
     wing.rotateX(THREE.MathUtils.degToRad(90));
-    // wing.rotateZ(THREE.MathUtils.degToRad(90));
 
     let headGeometry = new THREE.SphereGeometry( 5, 32, 16, 0, Math.PI*2, 0, Math.PI*0.5 );
     let headMaterial = new THREE.MeshBasicMaterial( { color: 'orange' } );
@@ -90,6 +124,34 @@ function createAirplane(){
     planeWindow.position.set(0,28,-3);
     planeWindow.rotateX(THREE.MathUtils.degToRad(-90));
 
+    let propellerGroup = new THREE.Group();
+
+    // eixo central
+    let hubGeometry = new THREE.CylinderGeometry(1.5, 1.5, 2, 16);
+    let hubMaterial = new THREE.MeshBasicMaterial({ color: 'black' });
+    let hub = new THREE.Mesh(hubGeometry, hubMaterial);
+
+    // pá da hélice
+    let bladeGeometry = new THREE.BoxGeometry(1, 20, 0.5);
+    let bladeMaterial = new THREE.MeshBasicMaterial({ color: 'white' });
+
+    // primeira pá
+    let blade1 = new THREE.Mesh(bladeGeometry, bladeMaterial);
+
+    // segunda pá (cruzada)
+    let blade2 = new THREE.Mesh(bladeGeometry, bladeMaterial);
+    blade2.rotateZ(Math.PI / 2);
+
+    // adiciona tudo ao grupo
+    propellerGroup.add(hub);
+    propellerGroup.add(blade1);
+    propellerGroup.add(blade2);
+    propellerGroup.rotateZ(THREE.MathUtils.degToRad(90));
+    propellerGroup.rotateY(THREE.MathUtils.degToRad(90));
+    propellerGroup.position.set(0, 41, 0);
+    airplane.propeller = propellerGroup;
+    
+    airplane.add(propellerGroup);
     airplane.add(planeWindow);
     airplane.add(tail);
     airplane.add(necklace);
@@ -103,7 +165,7 @@ function createAirplane(){
 let airplane1 = createAirplane();
 scene.add(airplane1);
 
-// tree
+// ================================ Árvores ================================ 
 function createTree(x, z){
     // stem
     const stem_height = 10;
@@ -147,6 +209,8 @@ function createTree(x, z){
     return stem
 }
 
+// ================================ Cenário  ================================ 
+
 for (let i = 0; i < 12; i++) {
     const minX = -plane_width / 2
     const maxX = plane_width / 2
@@ -172,15 +236,41 @@ let controls = new InfoBox();
   controls.add("* Scroll to zoom in/out.");
   controls.show();
 
-const speed = -1.0;
+// ================================ Camera ================================ 
+
+const cameraBehind = 180;
+const cameraHeigth = 90;
+
+camera = initCamera(new THREE.Vector3(0, 100, -600)); 
+camera.position.set(
+    airplane1.position.x,
+    airplane1.position.y + cameraHeigth,
+    airplane1.position.z - cameraBehind
+);
+scene.add(camera); 
+camera.lookAt(0,0,0);
+orbit = new OrbitControls( camera, renderer.domElement ); 
+
+let plane_array = [plane, plane2];
+const speed = 5;
 
 render();
 function render()
 {
   stats.update();
 
-  // plane.position.z += speed;  
+  plane_array[0].position.z -= speed;
+  plane_array[1].position.z -= speed;  
 
+  if (plane_array[0].position.z < - plane_height) {
+    plane_array[0].position.z = plane_array[1].position.z + plane_height;
+    plane_array.push(plane_array.shift());
+  }
+
+  
+
+  airplane1.propeller.rotation.z += 10;
   requestAnimationFrame(render);
   renderer.render(scene, camera) // Render scene
+  count += 1;
 }
