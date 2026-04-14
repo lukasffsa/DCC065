@@ -36,10 +36,15 @@ const plane_width = 2000;
 const plane_height = 2000;
 
 const grassColor = "rgb(34, 139, 34)";
+const red = "rgb(255, 0, 0)";
 const meshColor = "rgb(50, 50, 50)";
+
 let plane = createGroundPlaneWired(plane_width, plane_height, 10, 10, 3, grassColor, meshColor);
 scene.add(plane);
 
+let plane2 = createGroundPlaneWired(plane_width, plane_height, 10, 10, 3, red, meshColor);
+scene.add(plane2);
+plane2.position.z = plane_height
 // ================================ AJUSTE DE FOG  ================================ 
 
 const planeSize = Math.max(plane_width, plane_height);
@@ -80,7 +85,6 @@ window.addEventListener( 'resize', function(){onWindowResize(camera, renderer)},
 
 // ================================ AVIÃO ================================ 
 
-// airplane
 function createAirplane(){
     const airmaterial = new THREE.MeshBasicMaterial( { color: 'grey' } );
     let airplaneGeometry = new THREE.CylinderGeometry(5, 3, 70, 32);
@@ -151,6 +155,9 @@ function createAirplane(){
     airplane.add(head);
     airplane.add(wing);
     scene.add(airplane);
+
+    const airplaneAxesHelper = new THREE.AxesHelper(100); 
+    airplane.add(airplaneAxesHelper);
 
     return airplane
 }
@@ -229,12 +236,14 @@ for (let i = 0; i < 12; i++) {
 //   controls.add("* Scroll to zoom in/out.");
 //   controls.show();
 
-const speed = -1.0;
+const speed = 5.0;
 
 // ================================ CAMERA ================================ 
 
 const cameraBehind = 210;
 const cameraHeigth = 90;
+
+let plane_array = [plane, plane2];
 
 camera = initCamera(new THREE.Vector3(0, 100, -600)); 
 camera.position.set(
@@ -258,10 +267,14 @@ var flyCamera = new FlyControls( airplane1, renderer.domElement );
 
 // Obter coordenadas do mouse
 let mouse = new THREE.Vector2();
+let prevMouse = new THREE.Vector2();
+let stationaryFrames = 0;
+const stationaryThreshold = 3;
 
 window.addEventListener('mousemove', (event) => {
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    stationaryFrames = 0;
 });
 
 const raycaster = new THREE.Raycaster();
@@ -287,30 +300,50 @@ function updateMove() {
 
     if (!targetPoint) return;
 
+    if (mouse.equals(prevMouse)) {
+        stationaryFrames++;
+    } else {
+        stationaryFrames = 0;
+    }
+    prevMouse.copy(mouse);
+
+    // se o mouse está sobre o avião, não atualiza yaw/roll
+    let intersectsAirplane = raycaster.intersectObject(airplane1, true);
+    if (intersectsAirplane.length > 0) {
+        lerpConfig.destination.copy(targetPoint);
+        if (stationaryFrames >= stationaryThreshold) {
+            airplane1.rotation.y = THREE.MathUtils.lerp(airplane1.rotation.y, 0, 0.08);
+            airplane1.rotation.z = THREE.MathUtils.lerp(airplane1.rotation.z, 0, 0.08);
+            lerpConfig.destination.copy(airplane1.position);
+        }
+        return;
+    }
+
     // ================= DIREÇÃO (MUNDO) =================
     let direction = targetPoint.clone().sub(airplane1.position);
 
     // ================= YAW (somente eixo Y) =================
-    let targetAngle = Math.atan2(direction.x, direction.z);
+    let targetAngle = Math.atan2(-direction.x, direction.z);
 
-    // suavização
+    // suavização (menos sensível a pequenos movimentos do mouse)
     let currentAngle = airplane1.rotation.y;
-    airplane1.rotation.y += (targetAngle - currentAngle) * 0.05;
+    airplane1.rotation.y += (targetAngle - currentAngle) * 0.02;
 
     // ================= ESPAÇO LOCAL =================
     let localTarget = airplane1.worldToLocal(targetPoint.clone());
 
     // ================= ROLL (somente eixo Z) =================
-    let maxRoll = Math.PI / 6; // 30 graus
+    let maxRoll = Math.PI / 10; // 15 graus
+    let rollSensitivity = 0.0005;
+    let deadZone = 10;
+    let targetRoll = 0;
 
-    let targetRoll = THREE.MathUtils.clamp(-localTarget.x * 0.002, -maxRoll, maxRoll);
+    if (Math.abs(localTarget.x) > deadZone) {
+        targetRoll = THREE.MathUtils.clamp(-localTarget.x * rollSensitivity, -maxRoll, maxRoll);
+    }
 
-    // suavização do roll
-    airplane1.rotation.z += (-targetRoll - airplane1.rotation.z) * 0.1;
-
-    raycaster.setFromCamera(mouse, camera);
-
-    raycaster.ray.intersectPlane(movementPlane, targetPoint);
+    // suavização do roll e retorno gradual à posição neutra
+    airplane1.rotation.z = THREE.MathUtils.lerp(airplane1.rotation.z, -targetRoll, 1);
 
     if (targetPoint) {
         lerpConfig.destination.copy(targetPoint);
@@ -322,12 +355,28 @@ function updateMove() {
 render();
 function render()
 {
-//   stats.update();
+  stats.update();
+  plane_array[0].position.z -= speed;
+  plane_array[1].position.z -= speed;  
+
+  if (plane_array[0].position.z < - plane_height) {
+    plane_array[0].position.z = plane_array[1].position.z + plane_height;
+    plane_array.push(plane_array.shift());
+  }
   updateMove();
   
   airplane1.propeller.rotation.z += 10;
 
   airplane1.position.lerp(lerpConfig.destination, lerpConfig.alpha);
+  airplane1.position.z = -800;
+  airplane1.position.y = 100;
+
+  if (airplane1.position.x >= 200){
+    airplane1.position.x = 200;
+  }
+  else if (airplane1.position.x <= -200){
+    airplane1.position.x = -200;
+  }
   requestAnimationFrame(render);
   renderer.render(scene, camera) // Render scene
 }
