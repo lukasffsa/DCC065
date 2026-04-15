@@ -1,4 +1,5 @@
 import * as THREE from  'three';
+import { FlyControls } from '../build/jsm/controls/FlyControls.js';
 import GUI from '../libs/util/dat.gui.module.js';
 import { OrbitControls } from '../build/jsm/controls/OrbitControls.js';
 import {initRenderer, 
@@ -13,6 +14,12 @@ import {initRenderer,
 import Stats from '../build/jsm/libs/stats.module.js';
 const stats = new Stats();
 
+// ======================== CONSTANTES DO AVIAO ======================
+const airplaneHeight = 100;
+const maxAirplaneX = 200;
+const airplaneZ = -800;
+
+
 // isso é pra não ficar pra fora da tela 
 stats.dom.style.position = 'absolute';
 stats.dom.style.top = '30px';
@@ -20,7 +27,7 @@ stats.dom.style.left = '30px';
 
 // pra não ter que mexer com o html
 document.body.appendChild( stats.dom );
-// ================================ CONTADOR DE FPS  ================================ 
+// ================================ INICIANDO VARIÁVEIS  ================================ 
 
 let scene, renderer, camera, material, light, orbit;
 scene = new THREE.Scene();
@@ -28,27 +35,24 @@ scene.background = new THREE.Color("rgb(175,207,220)");
 renderer = initRenderer();    
 material = setDefaultMaterial(); 
 light = initDefaultBasicLight(scene); 
-
+scene.add(light)
 
 // ================================ Plano ================================ 
 const plane_width = 2000;
 const plane_height = 2000;
 
 const grassColor = "rgb(34, 139, 34)";
-const red = "rgb(255, 0, 0)";
 const meshColor = "rgb(50, 50, 50)";
 
 let plane = createGroundPlaneWired(plane_width, plane_height, 10, 10, 3, grassColor, meshColor);
 scene.add(plane);
 
-let plane2 = createGroundPlaneWired(plane_width, plane_height, 10, 10, 3, red, meshColor);
+let plane2 = createGroundPlaneWired(plane_width, plane_height, 10, 10, 3, grassColor, meshColor);
 scene.add(plane2);
 plane2.position.z = plane_height
-
-const planeSize = Math.max(plane_width, plane_height);
-
 // ================================ AJUSTE DE FOG  ================================ 
 
+const planeSize = Math.max(plane_width, plane_height);
 
 // parâmetros iniciais estratégicos
 let fogParams = {
@@ -69,7 +73,6 @@ function buildInterface() {
          scene.fog.near = value;
       });
 
-
 }
 
 buildInterface();
@@ -85,15 +88,14 @@ scene.add(axesHelper);
 // Listen window size changes
 window.addEventListener( 'resize', function(){onWindowResize(camera, renderer)}, false );
 
-// ================================ Avião ================================ 
+// ================================ AVIÃO ================================ 
 
-// airplane
 function createAirplane(){
     const airmaterial = new THREE.MeshBasicMaterial( { color: 'grey' } );
     let airplaneGeometry = new THREE.CylinderGeometry(5, 3, 70, 32);
     let airplane = new THREE.Mesh(airplaneGeometry, airmaterial);
 
-    airplane.position.set(0.0, 100, -800);
+    airplane.position.set(0.0, airplaneHeight, airplaneZ);
     airplane.rotateX(THREE.MathUtils.degToRad(90));
 
     let wingMaterial = new THREE.MeshBasicMaterial({color: "orange"});
@@ -111,11 +113,14 @@ function createAirplane(){
     let head = new THREE.Mesh( headGeometry, headMaterial );
     head.position.set(0,35,0);
 
-    let tailGeometry = new THREE.ConeGeometry( 5, 20, 32 );
+    let tailShape = new THREE.Shape();
+    tailShape.ellipse(0, 0, 10, 3.5, 0, Math.PI * 2);
+    let tailGeometry = new THREE.ExtrudeGeometry(tailShape, extrudeSettings)
+
     let necklace = new THREE.Mesh(tailGeometry, headMaterial );
     necklace.position.set(0,-10,0);
     let tail = new THREE.Mesh(tailGeometry, headMaterial );
-    tail.position.set(0,-35,0);
+    tail.position.set(0,-25,0);
 
     let windowGeometry = new THREE.SphereGeometry( 3, 32, 16, 0, Math.PI*2, 0, Math.PI*0.5 );
     windowGeometry.scale(1,1,2);
@@ -154,10 +159,12 @@ function createAirplane(){
     airplane.add(propellerGroup);
     airplane.add(planeWindow);
     airplane.add(tail);
-    airplane.add(necklace);
     airplane.add(head);
     airplane.add(wing);
     scene.add(airplane);
+
+    const airplaneAxesHelper = new THREE.AxesHelper(100); 
+    airplane.add(airplaneAxesHelper);
 
     return airplane
 }
@@ -165,11 +172,11 @@ function createAirplane(){
 let airplane1 = createAirplane();
 scene.add(airplane1);
 
-// ================================ Árvores ================================ 
+// ================================ ÁRVORES ================================ 
 function createTree(x, z){
     // stem
-    const stem_height = 10;
-    const stem_radius = 2;
+    const stem_height = 20;
+    const stem_radius = 5;
     let stemGeometry = new THREE.CylinderGeometry(stem_radius, stem_radius, stem_height, 32);
     const stemMaterial = new THREE.MeshBasicMaterial({color: 0x8B4513});
 
@@ -179,7 +186,7 @@ function createTree(x, z){
     stem.rotateX(Math.PI / 2);
 
     // leaves
-    const base_leaf_height = 15;
+    const base_leaf_height = 30;
 
     const height_variation = (Math.random() * 10) - 5;
     const leaf_height = base_leaf_height + height_variation
@@ -209,9 +216,34 @@ function createTree(x, z){
     return stem
 }
 
-// ================================ Cenário  ================================ 
+function createAlternativeTree(x, z){
+  const stem_height = 40;
+  const stem_radius = 3;
+  
+  let stemGeometry = new THREE.CylinderGeometry(stem_radius, stem_radius, stem_height, 32);
+  const stemMaterial = new THREE.MeshBasicMaterial({color: 0x8B4513});
 
-for (let i = 0; i < 12; i++) {
+  let stem = new THREE.Mesh(stemGeometry, stemMaterial);
+
+  stem.position.set(x, z, (stem_height/2));
+  stem.rotateX(Math.PI / 2);
+
+  const roundLeafGeometry = new THREE.SphereGeometry(20);
+  let leafMaterial = new THREE.MeshBasicMaterial({color:0x228B22});
+
+  let roundLeaf = new THREE.Mesh(roundLeafGeometry, leafMaterial)
+
+  stem.add(roundLeaf)
+  roundLeaf.translateY(stem_height / 2)
+
+  return stem;
+}
+
+// ================================ CENÁRIO  ================================ 
+
+for (let i = 0; i < 60; i++) {
+    const luck = Math.round(Math.random());
+
     const minX = -plane_width / 2
     const maxX = plane_width / 2
 
@@ -221,44 +253,153 @@ for (let i = 0; i < 12; i++) {
     const x = Math.random() * (maxX - minX) + minX;
     const z = Math.random() *  (maxZ - minZ) + minZ;
 
-    const tree = createTree(x, z);
+    let tree;
+    let tree2;
+
+    if (luck == 0) {
+      tree = createTree(x, z);
+      tree2 = createTree(z, x);
+    }
+
+    else {
+      tree = createAlternativeTree(x, z);
+      tree2 = createAlternativeTree(z, x);
+    }
     
     plane.add(tree)
+    plane2.add(tree2)
 }
 
 // Use this to show information onscreen
-let controls = new InfoBox();
-  controls.add("Basic Scene");
-  controls.addParagraph();
-  controls.add("Use mouse to interact:");
-  controls.add("* Left button to rotate");
-  controls.add("* Right button to translate (pan)");
-  controls.add("* Scroll to zoom in/out.");
-  controls.show();
+// let controls = new InfoBox();
+//   controls.add("Basic Scene");
+//   controls.addParagraph();
+//   controls.add("Use mouse to interact:");
+//   controls.add("* Left button to rotate");
+//   controls.add("* Right button to translate (pan)");
+//   controls.add("* Scroll to zoom in/out.");
+//   controls.show();
 
-// ================================ Camera ================================ 
+const speed = 5.0;
 
-const cameraBehind = 180;
-const cameraHeigth = 90;
+// ================================ CAMERA ================================ 
+
+const cameraBehind = 210;
+const cameraHeight = 90;
+
+let plane_array = [plane, plane2];
 
 camera = initCamera(new THREE.Vector3(0, 100, -600)); 
 camera.position.set(
     airplane1.position.x,
-    airplane1.position.y + cameraHeigth,
+    airplane1.position.y + cameraHeight,
     airplane1.position.z - cameraBehind
 );
 scene.add(camera); 
 camera.lookAt(0,0,0);
-orbit = new OrbitControls( camera, renderer.domElement ); 
 
-let plane_array = [plane, plane2];
-const speed = 5;
+// ================================ MOVIMENTO DO AVIÃO ================================ 
+
+var flyCamera = new FlyControls( airplane1, renderer.domElement );
+
+  flyCamera.movementSpeed = 10
+  flyCamera.domElement = renderer.domElement;
+  flyCamera.rollSpeed = -20;
+  flyCamera.autoForward = true;
+  flyCamera.dragToLook = false;
+  const clock = new THREE.Clock();
+
+// Obter coordenadas do mouse
+let mouse = new THREE.Vector2();
+let prevMouse = new THREE.Vector2();
+let stationaryFrames = 0;
+const stationaryThreshold = 3;
+
+window.addEventListener('mousemove', (event) => {
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    stationaryFrames = 0;
+});
+
+const raycaster = new THREE.Raycaster();
+
+// plano horizontal (altura do avião)
+const planeY = airplane1.position.y;
+const movementPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeY);
+
+const lerpConfig = {
+    destination: new THREE.Vector3(mouse.x, airplane1.position.y ,airplane1.position.z),
+    alpha: 0.1,
+    move: true
+  }
+
+function updateMove() {
+    let delta = clock.getDelta();
+
+    // ================= ALVO =================
+    raycaster.setFromCamera(mouse, camera);
+
+    let targetPoint = new THREE.Vector3();
+    raycaster.ray.intersectPlane(movementPlane, targetPoint);
+
+    if (!targetPoint) return;
+
+    if (mouse.equals(prevMouse)) {
+        stationaryFrames++;
+    } else {
+        stationaryFrames = 0;
+    }
+    prevMouse.copy(mouse);
+
+    // se o mouse está sobre o avião, não atualiza yaw/roll
+    let intersectsAirplane = raycaster.intersectObject(airplane1, true);
+    if (intersectsAirplane.length > 0) {
+        lerpConfig.destination.copy(targetPoint);
+        if (stationaryFrames >= stationaryThreshold) {
+            airplane1.rotation.y = THREE.MathUtils.lerp(airplane1.rotation.y, 0, 0.08);
+            airplane1.rotation.z = THREE.MathUtils.lerp(airplane1.rotation.z, 0, 0.08);
+            lerpConfig.destination.copy(airplane1.position);
+        }
+        return;
+    }
+
+    // ================= DIREÇÃO (MUNDO) =================
+    let direction = targetPoint.clone().sub(airplane1.position);
+
+    // ================= YAW (somente eixo Y) =================
+    let targetAngle = Math.atan2(-direction.x, direction.z);
+
+    // suavização (menos sensível a pequenos movimentos do mouse)
+    let currentAngle = airplane1.rotation.y;
+    airplane1.rotation.y += (targetAngle - currentAngle) * 0.02;
+
+    // ================= ESPAÇO LOCAL =================
+    let localTarget = airplane1.worldToLocal(targetPoint.clone());
+
+    // ================= ROLL (somente eixo Z) =================
+    let maxRoll = Math.PI / 10; // 15 graus
+    let rollSensitivity = 0.0005;
+    let deadZone = 10;
+    let targetRoll = 0;
+
+    if (Math.abs(localTarget.x) > deadZone) {
+        targetRoll = THREE.MathUtils.clamp(-localTarget.x * rollSensitivity, -maxRoll, maxRoll);
+    }
+
+    // suavização do roll e retorno gradual à posição neutra
+    airplane1.rotation.z = THREE.MathUtils.lerp(airplane1.rotation.z, -targetRoll, 1);
+
+    if (targetPoint) {
+        lerpConfig.destination.copy(targetPoint);
+    }
+}
+
+ // ================================ RENDERER ================================  
 
 render();
 function render()
 {
   stats.update();
-
   plane_array[0].position.z -= speed;
   plane_array[1].position.z -= speed;  
 
@@ -266,11 +407,20 @@ function render()
     plane_array[0].position.z = plane_array[1].position.z + plane_height;
     plane_array.push(plane_array.shift());
   }
-
+  updateMove();
   
-
   airplane1.propeller.rotation.z += 10;
+
+  airplane1.position.lerp(lerpConfig.destination, lerpConfig.alpha);
+  airplane1.position.z = -800;
+  airplane1.position.y = 100;
+
+  if (airplane1.position.x >= maxAirplaneX){
+    airplane1.position.x = maxAirplaneX;
+  }
+  else if (airplane1.position.x <= -maxAirplaneX){
+    airplane1.position.x = -maxAirplaneX;
+  }
   requestAnimationFrame(render);
   renderer.render(scene, camera) // Render scene
-  count += 1;
 }
