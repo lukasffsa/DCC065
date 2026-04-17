@@ -1,13 +1,9 @@
 import * as THREE from  'three';
-import { FlyControls } from '../build/jsm/controls/FlyControls.js';
 import GUI from '../libs/util/dat.gui.module.js';
-import { OrbitControls } from '../build/jsm/controls/OrbitControls.js';
 import {initRenderer, 
         initCamera,
         initDefaultBasicLight,
         setDefaultMaterial,
-        InfoBox,
-        onWindowResize,
         createGroundPlaneWired} from "../libs/util/util.js";
 
 let scene, renderer, camera, material, light, orbit;
@@ -237,7 +233,7 @@ function createAirplane(){
     let propellerGroup = new THREE.Group();
 
     // estrutura principal
-    airplane.position.set(0.0, 50, -550);
+    airplane.position.set(0.0, 100, -550);
     airplane.rotateX(THREE.MathUtils.degToRad(90));
 
     const bodyEdges = new THREE.LineSegments(
@@ -347,8 +343,8 @@ function updateAirplane() {
   updateRaycast();
 
   targetPosition.set(
-    THREE.MathUtils.clamp(intersectionPoint.x, -200, 200),
-    THREE.MathUtils.clamp(intersectionPoint.y, 40, 200),
+    THREE.MathUtils.clamp(intersectionPoint.x, -400, 400),
+    THREE.MathUtils.clamp(intersectionPoint.y, 140, 260),
     airplane.position.z
   );
 
