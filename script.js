@@ -25,11 +25,16 @@ const meshColor = "rgb(50, 50, 50)";
 const alpha = 0.075;
 const targetPosition = new THREE.Vector3();
 const maxRoll = Math.PI / 4; 
-const rotationSpeed = 0.1;
+const rotationSpeed = 1;
+const boundMaxX = 300;
+
 
 // camera
 const cameraBehind = 400;
 const cameraHeight = 150;
+const camTiltIntensity = 1;
+const camLerpSpeed = 0.05;
+const maxCamOffset = 200;
 // ================================================================================== 
 
 
@@ -343,7 +348,7 @@ function updateAirplane() {
   updateRaycast();
 
   targetPosition.set(
-    THREE.MathUtils.clamp(intersectionPoint.x, -400, 400),
+    THREE.MathUtils.clamp(intersectionPoint.x, -boundMaxX, boundMaxX),
     THREE.MathUtils.clamp(intersectionPoint.y, 140, 260),
     airplane.position.z
   );
@@ -368,10 +373,30 @@ camera.position.set(
     airplane.position.z - cameraBehind
 );
 
-// camera.position.set(0, 0, 0);
 scene.add(camera); 
 camera.lookAt(0,0,0);
-// =========================================================================
+
+function updateCamera() {
+  let excessX = 0;
+  const bound = boundMaxX * 0.8
+
+  if (intersectionPoint.x > bound) {
+    excessX = intersectionPoint.x - bound;
+  } else if (intersectionPoint.x < -bound) {
+    excessX = intersectionPoint.x + bound;
+  }
+
+  let targetCamX = excessX * camTiltIntensity;
+  targetCamX = THREE.MathUtils.clamp(targetCamX, -maxCamOffset, maxCamOffset);
+
+  camera.position.x = THREE.MathUtils.lerp(
+    camera.position.x,
+    targetCamX,
+    camLerpSpeed
+  );
+}
+
+// ===========================================================================
 
 // ================================ RAYCASTER ================================= 
 const raycaster = new THREE.Raycaster();
@@ -397,7 +422,8 @@ function render()
   airplane.propeller.rotation.z += 10;
   updatePlane(plane_array, speed);
   updateAirplane();
-  
+  updateCamera();
+
   requestAnimationFrame(render);
   renderer.render(scene, camera) 
 }
