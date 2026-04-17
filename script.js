@@ -29,7 +29,7 @@ const meshColor = "rgb(50, 50, 50)";
 const alpha = 0.075;
 const targetPosition = new THREE.Vector3();
 const maxRoll = Math.PI / 4; 
-const rotationSpeed = 0.1;
+const rotationSpeed = 1;
 
 // posicao aviao
 const boundMaxX = 300;
@@ -206,71 +206,139 @@ buildInterface();
 
 // ============================= AIRPLANE ===============================
 function createAirplane(){
+
     // constantes
-    const airplaneRadius = 8;
-    const airplaneLength = 100;
-    const noseLength = 40;
-    const wingShape = new THREE.Shape();
-    wingShape.moveTo(0, 0);
-    wingShape.lineTo(0, 60);
-    wingShape.lineTo(80, 5);
-    wingShape.lineTo(80, 0);
-    wingShape.lineTo(0, 0);
-    const depth = 3;
+    const greyMaterial = new THREE.MeshBasicMaterial( { color: 'grey' } );
+    const orangeMaterial = new THREE.MeshBasicMaterial({color: "orange"});
+    const blackMaterial = new THREE.MeshBasicMaterial({ color: 'black' });
+    let extrudeSettings = { depth: 5, bevelEnabled: false };  
 
-    const extrudeSettings = { 
-      depth: depth, 
-      bevelEnabled: false 
-    };
-
-    // materiais
-    const airplaneMaterial = new THREE.MeshBasicMaterial( { color: 'grey' } );
-    const redMaterial = new THREE.MeshBasicMaterial( {color: 'red'} );
-    const blueMaterial = new THREE.MeshBasicMaterial( {color: 'blue'} );
-    const blackMaterial = new THREE.MeshBasicMaterial( {color: 'black'} );
 
     // geometrias
-    let airplaneGeometry = new THREE.CylinderGeometry(airplaneRadius, airplaneRadius, airplaneLength, 32);
-    let airplaneNoseGeometry = new THREE.ConeGeometry(airplaneRadius, noseLength, 32);
-    let pilotCabinGeometry = new THREE.CapsuleGeometry(airplaneRadius / 1.25, airplaneLength / 8, 4, 32, 1)
-    const wingGeometry = new THREE.ExtrudeGeometry(wingShape, extrudeSettings);
+    let airplaneGeometry = new THREE.CylinderGeometry(7, 2, 100, 32);
+    let headGeometry = new THREE.SphereGeometry( 7, 32, 16, 0, Math.PI*2, 0, Math.PI*0.5 );
+    let upWingGeometry = new THREE.TetrahedronGeometry(4,0);
+    let windowGeometry = new THREE.SphereGeometry( 4, 32, 16, 0, Math.PI*2, 0, Math.PI*0.5 );
+    let hubGeometry = new THREE.CylinderGeometry(1.5, 1.5, 2, 16);
+    let bladeGeometry = new THREE.BoxGeometry(1, 20, 0.5);
 
+    let wingShape = new THREE.Shape();
+    wingShape.ellipse(0, 0, 45, 3.5, 0, Math.PI * 2);
+    let wingGeometry = new THREE.ExtrudeGeometry(wingShape, extrudeSettings);
+
+    let tailShape = new THREE.Shape();
+    tailShape.ellipse(0, 0, 20, 3.5, 0, Math.PI * 2);
+    let tailGeometry = new THREE.ExtrudeGeometry(tailShape, extrudeSettings)
+    tailGeometry.scale(0.6, 0.5, 0.6);
+    
     // meshes
-    let airplane = new THREE.Mesh(airplaneGeometry, airplaneMaterial);
-    let airplaneNose = new THREE.Mesh(airplaneNoseGeometry, redMaterial)
-    let pilotCabin = new THREE.Mesh(pilotCabinGeometry, blackMaterial)
-    let r_wing = new THREE.Mesh(wingGeometry, redMaterial);
-    let l_wing = new THREE.Mesh(wingGeometry, redMaterial);
-    let r_winglet = new THREE.Mesh(wingGeometry, redMaterial)
-    let l_winglet = new THREE.Mesh(wingGeometry, redMaterial)
+    let airplane = new THREE.Mesh(airplaneGeometry, greyMaterial);
+    let head = new THREE.Mesh( headGeometry, orangeMaterial );
+    const wing = new THREE.Mesh(wingGeometry, orangeMaterial);
+    let tail = new THREE.Mesh(tailGeometry, orangeMaterial);
+    let planeWindow = new THREE.Mesh( windowGeometry, blackMaterial);
+    let upWing = new THREE.Mesh(upWingGeometry, orangeMaterial);
+    let hub = new THREE.Mesh(hubGeometry, blackMaterial);
+    let bladeMaterial = new THREE.MeshBasicMaterial({ color: 'white' });
+    let propellerGroup = new THREE.Group();
 
-    airplane.add(airplaneNose);
-    airplaneNose.position.y += (airplaneLength / 2) + (noseLength / 2);
+    // estrutura principal
+    airplane.position.set(0.0, 100, -550);
+    airplane.rotateX(THREE.MathUtils.degToRad(90));
 
-    airplane.add(pilotCabin);
-    pilotCabin.position.z -= (airplaneRadius / 1.5)
+    const bodyEdges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(airplaneGeometry),
+        new THREE.LineBasicMaterial({ color: 'black' })
+    );
+    airplane.add(bodyEdges);
 
-    airplane.position.set(0.0, 50, -550);
-    airplane.rotateX(THREE.MathUtils.degToRad(90));  
+    // asas
+    wing.position.set(0, 10, 0); 
+    wing.rotateX(THREE.MathUtils.degToRad(90));
+    
+    const wingEdges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(wingGeometry),
+        new THREE.LineBasicMaterial({ color: 'black' })
+    );
+    wing.add(wingEdges);
 
-    airplane.add(r_wing);
-    r_wing.position.y -= (airplaneLength / 4);
-    r_wing.position.z += depth;
-    r_wing.rotateY(THREE.MathUtils.degToRad(180));
+    // cabeça
+    head.position.set(0,50,0);
 
-    airplane.add(l_wing);
-    l_wing.position.y -= (airplaneLength / 4);
+    const headEdges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(headGeometry),
+        new THREE.LineBasicMaterial({ color: 'black' })
+    );
+    head.add(headEdges);
 
-    airplane.add(r_winglet);
-    r_winglet.position.y -= (airplaneLength / 2.1);
-    r_winglet.scale.set(0.3, 0.3, 0.3);
-    r_winglet.position.z += depth;
-    r_winglet.rotateY(THREE.MathUtils.degToRad(180))
+    // cauda
+    tail.position.set(0,-48,0);
+    tail.rotateX(THREE.MathUtils.degToRad(90));
+    
+    const tailEdges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(tailGeometry),
+        new THREE.LineBasicMaterial({ color: 'black' })
+    );
+    tail.add(tailEdges);
+    
+    upWing.position.set(0,-49,-3)
+    upWing.rotateZ(-Math.PI/4)
+    
+    const upWingEdges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(upWingGeometry),
+        new THREE.LineBasicMaterial({ color: 'black' })
+    );
+    upWing.add(upWingEdges);
 
-    airplane.add(l_winglet);
-    l_winglet.position.y -= (airplaneLength / 2.1);
-    l_winglet.scale.set(0.3, 0.3, 0.3);
+    // cabine/janela
+    windowGeometry.scale(1,1,2);
+    planeWindow.position.set(0,40,-5);
+    planeWindow.rotateX(THREE.MathUtils.degToRad(-90));
+    
+    const windowEdges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(windowGeometry),
+        new THREE.LineBasicMaterial({ color: 'black' })
+    );
+    planeWindow.add(windowEdges);
 
+    // hélices
+    const hubEdges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(hubGeometry),
+        new THREE.LineBasicMaterial({ color: 'black' })
+    );
+    hub.add(hubEdges);
+
+
+    let blade1 = new THREE.Mesh(bladeGeometry, bladeMaterial);
+    const blade1Edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(bladeGeometry),
+        new THREE.LineBasicMaterial({ color: 'black' })
+    );
+    blade1.add(blade1Edges);
+
+    let blade2 = new THREE.Mesh(bladeGeometry, bladeMaterial);
+    const blade2Edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(bladeGeometry),
+        new THREE.LineBasicMaterial({ color: 'black' })
+    );
+    blade2.add(blade2Edges);
+    blade2.rotateZ(Math.PI / 2);
+
+    // adiciona tudo ao grupo
+    propellerGroup.add(hub);
+    propellerGroup.add(blade1);
+    propellerGroup.add(blade2);
+    propellerGroup.rotateZ(THREE.MathUtils.degToRad(90));
+    propellerGroup.rotateY(THREE.MathUtils.degToRad(90));
+    propellerGroup.position.set(0, 60, 0);
+    airplane.propeller = propellerGroup;
+    
+    airplane.add(propellerGroup);
+    airplane.add(planeWindow);
+    airplane.add(tail);
+    airplane.add(head);
+    airplane.add(wing);
+    airplane.add(upWing);
     scene.add(airplane);
 
     const airplaneAxesHelper = new THREE.AxesHelper(100); 
@@ -310,7 +378,6 @@ camera.position.set(
     airplane1.position.z - cameraBehind
 );
 
-// camera.position.set(0, 0, 0);
 scene.add(camera); 
 camera.lookAt(0,0,0);
 
