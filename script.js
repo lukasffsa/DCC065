@@ -31,9 +31,16 @@ const targetPosition = new THREE.Vector3();
 const maxRoll = Math.PI / 4; 
 const rotationSpeed = 0.1;
 
+// posicao aviao
+const boundMaxX = 300;
+const boundMinX = -boundMaxX;
+
 // camera
 const cameraBehind = 400;
 const cameraHeight = 150;
+const camTiltIntensity = 1;
+const camLerpSpeed = 0.05;
+const maxCamOffset = 200;
 // ================================================================================== 
 
 
@@ -177,7 +184,7 @@ const planeSize = Math.max(plane_width, plane_height);
 
 let fogParams = {
    color: "rgb(175,207,220)",
-   near: planeSize * 0.05,  // começa antes da borda
+   near: planeSize * 0.2,  // começa antes da borda
    far: planeSize * 0.4    // cobre bem a borda
 };
 
@@ -278,7 +285,7 @@ function updateAirplane() {
   updateRaycast();
 
   targetPosition.set(
-    THREE.MathUtils.clamp(intersectionPoint.x, -200, 200),
+    THREE.MathUtils.clamp(intersectionPoint.x, boundMinX, boundMaxX),
     THREE.MathUtils.clamp(intersectionPoint.y, 40, 200),
     airplane1.position.z
   );
@@ -306,6 +313,26 @@ camera.position.set(
 // camera.position.set(0, 0, 0);
 scene.add(camera); 
 camera.lookAt(0,0,0);
+
+function updateCamera() {
+  let excessX = 0;
+  const bound = boundMaxX * 0.8
+
+  if (intersectionPoint.x > bound) {
+    excessX = intersectionPoint.x - bound;
+  } else if (intersectionPoint.x < -bound) {
+    excessX = intersectionPoint.x + bound;
+  }
+
+  let targetCamX = excessX * camTiltIntensity;
+  targetCamX = THREE.MathUtils.clamp(targetCamX, -maxCamOffset, maxCamOffset);
+
+  camera.position.x = THREE.MathUtils.lerp(
+    camera.position.x,
+    targetCamX,
+    camLerpSpeed
+  );
+}
 // =========================================================================
 
 // ================================ RAYCASTER ================================= 
@@ -331,6 +358,7 @@ function render()
   stats.update();
   updatePlane(plane_array, speed);
   updateAirplane();
+  updateCamera();
   
   requestAnimationFrame(render);
   renderer.render(scene, camera) 
