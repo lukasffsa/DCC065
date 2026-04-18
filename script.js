@@ -6,11 +6,10 @@ import {initRenderer,
         setDefaultMaterial,
         createGroundPlaneWired} from "../libs/util/util.js";
 
-let scene, renderer, camera, material, light, orbit;
+let scene, renderer, camera, light;
 scene = new THREE.Scene();
 scene.background = new THREE.Color("rgb(175,207,220)");
 renderer = initRenderer();    
-material = setDefaultMaterial(); 
 light = initDefaultBasicLight(scene); 
 scene.add(light)
 
@@ -28,15 +27,13 @@ const maxRoll = Math.PI / 4;
 const rotationSpeed = 1;
 const boundMaxX = 300;
 
-
 // camera
 const cameraBehind = 400;
-const cameraHeight = 150;
+const cameraHeight = 180;
 const camTiltIntensity = 1;
 const camLerpSpeed = 0.05;
 const maxCamOffset = 200;
 // ================================================================================== 
-
 
 // ================================ CONTADOR DE FPS  ================================ 
 import Stats from '../build/jsm/libs/stats.module.js';
@@ -64,7 +61,7 @@ function createPlane(plane_width, plane_height) {
 
 let plane_array = createPlane(plane_width, plane_height)
 
-const speed = 10;
+const speed = 7;
 
 function updatePlane(plane_array, speed) {
     plane_array[0].position.z -= speed;
@@ -81,7 +78,7 @@ function createTree(x, z){
     const stem_height = 20;
     const stem_radius = 5;
     let stemGeometry = new THREE.CylinderGeometry(stem_radius, stem_radius, stem_height, 32);
-    const stemMaterial = new THREE.MeshBasicMaterial({color: 0x8B4513});
+    const stemMaterial = new THREE.MeshPhongMaterial({color: 0x8B4513,   shininess: 300} );
 
     let stem = new THREE.Mesh(stemGeometry, stemMaterial);
 
@@ -97,7 +94,7 @@ function createTree(x, z){
     const leaf_radius = leaf_height / 2;
 
     let leafGeometry = new THREE.ConeGeometry(leaf_radius, leaf_height, 32);
-    let leafMaterial = new THREE.MeshBasicMaterial({color:0x228B22});
+    let leafMaterial = new THREE.MeshPhongMaterial({color:0x228B22 ,  shininess: 300} );
 
     let leaf1 = new THREE.Mesh(leafGeometry, leafMaterial);
 
@@ -124,7 +121,7 @@ function createAlternativeTree(x, z){
   const stem_radius = 3;
   
   let stemGeometry = new THREE.CylinderGeometry(stem_radius, stem_radius, stem_height, 32);
-  const stemMaterial = new THREE.MeshBasicMaterial({color: 0x8B4513});
+  const stemMaterial = new THREE.MeshPhongMaterial({color: 0x8B4513, shininess: 300});
 
   let stem = new THREE.Mesh(stemGeometry, stemMaterial);
 
@@ -132,7 +129,7 @@ function createAlternativeTree(x, z){
   stem.rotateX(Math.PI / 2);
 
   const roundLeafGeometry = new THREE.SphereGeometry(20);
-  let leafMaterial = new THREE.MeshBasicMaterial({color:0x228B22});
+  let leafMaterial = new THREE.MeshPhongMaterial({color:0x228B22 ,  shininess: 10});
 
   let roundLeaf = new THREE.Mesh(roundLeafGeometry, leafMaterial)
 
@@ -142,34 +139,56 @@ function createAlternativeTree(x, z){
   return stem;
 }
 
-for (let i = 0; i < 30; i++) {
-  const luck = Math.round(Math.random());
+const numTreesPerPlane = 150;
+const minTreeDistance = 100;
+const treeSpawnArea = {
+  minX: -700,
+  maxX: 700,
+  minZ: -plane_height / 2,
+  maxZ: plane_height / 2
+};
 
-  const minX = -plane_width / 4
-  const maxX = plane_width / 2
+function sampleTreePositions(count, minDistance, area) {
+  const positions = [];
+  const maxAttempts = count * 200;
+  let attempts = 0;
 
-  const minZ = -plane_height / 4
-  const maxZ = plane_height / 4
+  while (positions.length < count && attempts < maxAttempts) {
+    const x = Math.random() * (area.maxX - area.minX) + area.minX;
+    const z = Math.random() * (area.maxZ - area.minZ) + area.minZ;
 
-  const x = Math.random() * (maxX - minX) + minX;
-  const z = Math.random() *  (maxZ - minZ) + minZ;
+    const tooClose = positions.some(p => {
+      const dx = x - p.x;
+      const dz = z - p.z;
+      return (dx * dx + dz * dz) < (minDistance * minDistance);
+    });
 
-  let tree;
-  let tree2;
+    if (!tooClose) {
+      positions.push({ x, z });
+    }
 
-  if (luck == 0) {
-    tree = createTree(x, z);
-    tree2 = createTree(z, x);
+    attempts++;
   }
 
-  else {
-    tree = createAlternativeTree(x, z);
-    tree2 = createAlternativeTree(z, x);
-  }
-  
-  plane_array[0].add(tree)
-  plane_array[1].add(tree2)
+  return positions;
 }
+
+const plane1TreePositions = sampleTreePositions(numTreesPerPlane, minTreeDistance, treeSpawnArea);
+const plane2TreePositions = sampleTreePositions(numTreesPerPlane, minTreeDistance, treeSpawnArea);
+
+plane1TreePositions.forEach(position => {
+  const tree = Math.random() < 0.5
+    ? createTree(position.x, position.z)
+    : createAlternativeTree(position.x, position.z);
+  plane_array[0].add(tree);
+});
+
+plane2TreePositions.forEach(position => {
+  const tree = Math.random() < 0.5
+    ? createTree(position.x, position.z)
+    : createAlternativeTree(position.x, position.z);
+  plane_array[1].add(tree);
+});
 
 // ====================================================================== 
 
@@ -178,7 +197,7 @@ const planeSize = Math.max(plane_width, plane_height);
 
 let fogParams = {
    color: "rgb(175,207,220)",
-   near: planeSize * 0.05,  // começa antes da borda
+   near: planeSize * 0.2,  // começa antes da borda
    far: planeSize * 0.4    // cobre bem a borda
 };
 
@@ -203,8 +222,8 @@ buildInterface();
 function createAirplane(){
 
     // constantes
-    const greyMaterial = new THREE.MeshBasicMaterial( { color: 'grey' } );
-    const orangeMaterial = new THREE.MeshBasicMaterial({color: "orange"});
+    const greyMaterial = new THREE.MeshPhongMaterial( { color: 'grey', shininess: 300 } );
+    const orangeMaterial = new THREE.MeshPhongMaterial({color: "orange", shininess: 500});
     const blackMaterial = new THREE.MeshBasicMaterial({ color: 'black' });
     let extrudeSettings = { depth: 5, bevelEnabled: false };  
 
@@ -241,68 +260,31 @@ function createAirplane(){
     airplane.position.set(0.0, 100, -550);
     airplane.rotateX(THREE.MathUtils.degToRad(90));
 
-    const bodyEdges = new THREE.LineSegments(
-        new THREE.EdgesGeometry(airplaneGeometry),
-        new THREE.LineBasicMaterial({ color: 'black' })
-    );
-    airplane.add(bodyEdges);
-
     // asas
     wing.position.set(0, 10, 0); 
-    wing.rotateX(THREE.MathUtils.degToRad(90));
-    
-    const wingEdges = new THREE.LineSegments(
-        new THREE.EdgesGeometry(wingGeometry),
-        new THREE.LineBasicMaterial({ color: 'black' })
-    );
-    wing.add(wingEdges);
+    wing.rotateX(THREE.MathUtils.degToRad(90));    
 
     // cabeça
     head.position.set(0,50,0);
-
-    const headEdges = new THREE.LineSegments(
-        new THREE.EdgesGeometry(headGeometry),
-        new THREE.LineBasicMaterial({ color: 'black' })
-    );
-    head.add(headEdges);
 
     // cauda
     tail.position.set(0,-48,0);
     tail.rotateX(THREE.MathUtils.degToRad(90));
     
-    const tailEdges = new THREE.LineSegments(
-        new THREE.EdgesGeometry(tailGeometry),
-        new THREE.LineBasicMaterial({ color: 'black' })
-    );
-    tail.add(tailEdges);
-    
     upWing.position.set(0,-49,-3)
     upWing.rotateZ(-Math.PI/4)
     
-    const upWingEdges = new THREE.LineSegments(
-        new THREE.EdgesGeometry(upWingGeometry),
-        new THREE.LineBasicMaterial({ color: 'black' })
-    );
-    upWing.add(upWingEdges);
-
     // cabine/janela
     windowGeometry.scale(1,1,2);
     planeWindow.position.set(0,40,-5);
     planeWindow.rotateX(THREE.MathUtils.degToRad(-90));
     
-    const windowEdges = new THREE.LineSegments(
-        new THREE.EdgesGeometry(windowGeometry),
-        new THREE.LineBasicMaterial({ color: 'black' })
-    );
-    planeWindow.add(windowEdges);
-
     // hélices
     const hubEdges = new THREE.LineSegments(
         new THREE.EdgesGeometry(hubGeometry),
         new THREE.LineBasicMaterial({ color: 'black' })
     );
     hub.add(hubEdges);
-
 
     let blade1 = new THREE.Mesh(bladeGeometry, bladeMaterial);
     const blade1Edges = new THREE.LineSegments(
@@ -336,8 +318,6 @@ function createAirplane(){
     airplane.add(upWing);
     scene.add(airplane);
 
-    const airplaneAxesHelper = new THREE.AxesHelper(100); 
-    airplane.add(airplaneAxesHelper);
 
     return airplane
 }
