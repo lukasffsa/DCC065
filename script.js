@@ -33,9 +33,11 @@ const cameraHeight = 180;
 const camTiltIntensity = 1;
 const camLerpSpeed = 0.05;
 const maxCamOffset = 200;
+
 // ================================================================================== 
 
 // ================================ CONTADOR DE FPS  ================================ 
+
 import Stats from '../build/jsm/libs/stats.module.js';
 const stats = new Stats();
 
@@ -44,9 +46,11 @@ stats.dom.style.top = '30px';
 stats.dom.style.left = '30px';
 
 document.body.appendChild( stats.dom );
+
 // ================================================================================== 
 
-// ================================ PLANO ================================ 
+// ================================ PLANO =========================================== 
+
 function createPlane(plane_width, plane_height) {
     let plane = createGroundPlaneWired(plane_width, plane_height, 10, 10, 3, grassColor, meshColor);
     scene.add(plane);
@@ -190,9 +194,10 @@ plane2TreePositions.forEach(position => {
   plane_array[1].add(tree);
 });
 
-// ====================================================================== 
+// ==================================================================================
 
-// ================================ FOG ================================ 
+// ================================ FOG ============================================= 
+
 const planeSize = Math.max(plane_width, plane_height);
 
 let fogParams = {
@@ -215,9 +220,10 @@ function buildInterface() {
 }
 
 buildInterface();
-// ==================================================================== 
 
-// ============================= AIRPLANE ===============================
+// ==================================================================================
+
+// ============================= AIRPLANE ===========================================
 
 function createAirplane(){
 
@@ -345,7 +351,11 @@ function updateAirplane() {
     rotationSpeed
   );
 }
-// ================================ CAMERA ================================ 
+
+// ==================================================================================
+
+// ================================ CAMERA ==========================================
+
 camera = initCamera(new THREE.Vector3(0, 100, -600)); 
 camera.position.set(
     airplane.position.x,
@@ -376,9 +386,10 @@ function updateCamera() {
   );
 }
 
-// ===========================================================================
+// ==================================================================================
 
-// ================================ RAYCASTER ================================= 
+// ================================ RAYCASTER =======================================
+
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 const planeXY = new THREE.Plane(new THREE.Vector3(0, 0, 1), 550);
@@ -393,7 +404,8 @@ function updateRaycast() {
     raycaster.setFromCamera(mouse, camera);
     raycaster.ray.intersectPlane(planeXY, intersectionPoint);
 }
-// ============================================================================ 
+
+// ==================================================================================
 
 render();
 function render()
