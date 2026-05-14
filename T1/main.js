@@ -1,6 +1,5 @@
 import * as THREE from  'three';
-import {onWindowResize} from "../libs/util/util.js";
-import { initDefaultBasicLight} from "../libs/util/util.js";
+import {onWindowResize, initDefaultBasicLight} from "../libs/util/util.js";
 import { airplane } from './airplane.js'
 import { scene, renderer } from './config.js';
 import { updateAirplane } from './raycast.js'
