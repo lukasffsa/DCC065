@@ -4,7 +4,7 @@ import { airplane } from './airplane.js'
 import { scene, renderer } from './config.js';
 import { updateAirplane } from './raycast.js'
 import { updateCamera, camera } from './camera.js'
-import { updatePlane, plane_array, speed } from './plane.js'
+import { updatePlane, plane_array, speed } from './terrain.js'
 import { buildInterface, stats } from './fog.js';
 
 
