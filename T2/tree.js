@@ -14,7 +14,7 @@ export function createTree(x, z) {
     const leaf_radius = leaf_height / 2;
 
     let leafGeometry = new THREE.ConeGeometry(leaf_radius, leaf_height, 32);
-    let leafMaterial = new THREE.MeshPhongMaterial({ color: 0x228B22, shininess: 300 });
+    let leafMaterial = new THREE.MeshPhongMaterial({ color: 0x2d7d32, shininess: 300 });
 
     let leaf1 = new THREE.Mesh(leafGeometry, leafMaterial);
     let leaf2 = new THREE.Mesh(leafGeometry, leafMaterial);
@@ -46,7 +46,7 @@ export function createAlternativeTree(x, z) {
     stem.position.set(x, alt_stem_height / 2, z);
 
     const roundLeafGeometry = new THREE.SphereGeometry(20);
-    let leafMaterial = new THREE.MeshPhongMaterial({ color: 0x228B22, shininess: 10 });
+    let leafMaterial = new THREE.MeshPhongMaterial({ color: 0x2d7d32, flatShading: true });
 
     let roundLeaf = new THREE.Mesh(roundLeafGeometry, leafMaterial);
     stem.add(roundLeaf);

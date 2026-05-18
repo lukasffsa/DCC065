@@ -8,8 +8,8 @@ const xS = 64;      // segmentos X (potência de 2)
 const yS = 64;      // segmentos Z (potência de 2)
 const COLS = xS + 1;
 const ROWS = yS + 1;
-const MAX_HEIGHT =  20;
-const MIN_HEIGHT = -20;
+const MAX_HEIGHT =  90;
+const MIN_HEIGHT = -50;
 const ROUGHNESS  =  0.55;
 
 // ─── Diamond-Square ───────────────────────────────────────────────────────────
@@ -17,63 +17,161 @@ const ROUGHNESS  =  0.55;
 // Quando null, gera tudo aleatoriamente.
 
 function diamondSquare(seedRow = null) {
-    // Tamanho da grade interna: deve ser 2^n + 1
-    // Usamos COLS x ROWS como grade; como xS == yS == 64, a grade é 65x65.
-    const N = COLS; // 65
+    const N = COLS;
     const map = new Float32Array(N * N);
 
     const get = (x, y) => map[y * N + x];
     const set = (x, y, v) => { map[y * N + x] = v; };
-    const rand = (s) => (Math.random() * 2 - 1) * s;
-    const clamp = (v) => Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, v));
 
-    // Semear cantos
-    if (seedRow) {
-        // Primeira linha (y=0) vem do chunk anterior
-        for (let x = 0; x < N; x++) set(x, 0, seedRow[x]);
-        set(0,   N-1, rand(80));
-        set(N-1, N-1, rand(80));
-    } else {
-        set(0,   0,   rand(80));
-        set(N-1, 0,   rand(80));
-        set(0,   N-1, rand(80));
-        set(N-1, N-1, rand(80));
+    const rand = (s) => (Math.random() * 2 - 1) * s;
+    const clamp = (v) =>
+        Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, v));
+
+    // ================================
+    // Random Midpoint Displacement
+    // gera grandes montanhas
+    // ================================
+
+    function generateMountainProfile() {
+
+        const profile = new Float32Array(N);
+
+        profile[0] = rand(10);
+        profile[N-1] = rand(10);
+
+        function midpoint(left,right,disp){
+
+            if(right-left<=1) return;
+
+            const mid=Math.floor((left+right)/2);
+
+            profile[mid]=
+                (profile[left]+profile[right])/2+
+                rand(disp);
+
+            midpoint(left,mid,disp*0.55);
+            midpoint(mid,right,disp*0.55);
+        }
+
+        midpoint(0,N-1,40);
+
+        return profile;
     }
 
-    let step = N - 1;
-    let scale = 80;
+    const mountains = generateMountainProfile();
 
-    while (step > 1) {
-        const half = step >> 1;
 
-        // Diamond step
-        for (let y = 0; y < N - 1; y += step) {
-            for (let x = 0; x < N - 1; x += step) {
-                const avg = (get(x, y) + get(x + step, y) +
-                             get(x, y + step) + get(x + step, y + step)) / 4;
-                set(x + half, y + half, clamp(avg + rand(scale)));
+    // ================================
+    // Diamond-Square original
+    // ================================
+
+    if (seedRow) {
+
+        for (let x = 0; x < N; x++)
+            set(x,0,seedRow[x]);
+
+        set(0,N-1,rand(80));
+        set(N-1,N-1,rand(80));
+
+    } else {
+
+        set(0,0,rand(80));
+        set(N-1,0,rand(80));
+        set(0,N-1,rand(80));
+        set(N-1,N-1,rand(80));
+    }
+
+    let step=N-1;
+    let scale=80;
+
+    while(step>1){
+
+        const half=step>>1;
+
+        // Diamond
+        for(let y=0;y<N-1;y+=step){
+
+            for(let x=0;x<N-1;x+=step){
+
+                const avg=(
+
+                    get(x,y)+
+                    get(x+step,y)+
+                    get(x,y+step)+
+                    get(x+step,y+step)
+
+                )/4;
+
+                set(
+                    x+half,
+                    y+half,
+                    clamp(avg+rand(scale))
+                );
             }
         }
 
-        // Square step
-        for (let y = 0; y < N; y += half) {
-            for (let x = (y + half) % step; x < N; x += step) {
-                let sum = 0, count = 0;
-                if (x - half >= 0) { sum += get(x - half, y); count++; }
-                if (x + half <  N) { sum += get(x + half, y); count++; }
-                if (y - half >= 0) { sum += get(x, y - half); count++; }
-                if (y + half <  N) { sum += get(x, y + half); count++; }
+        // Square
+        for(let y=0;y<N;y+=half){
 
-                const val = clamp(sum / count + rand(scale));
+            for(let x=(y+half)%step;x<N;x+=step){
 
-                // Não sobrescrever a seedRow fixada
-                if (seedRow && y === 0) continue;
-                set(x, y, val);
+                let sum=0;
+                let count=0;
+
+                if(x-half>=0){
+                    sum+=get(x-half,y);
+                    count++;
+                }
+
+                if(x+half<N){
+                    sum+=get(x+half,y);
+                    count++;
+                }
+
+                if(y-half>=0){
+                    sum+=get(x,y-half);
+                    count++;
+                }
+
+                if(y+half<N){
+                    sum+=get(x,y+half);
+                    count++;
+                }
+
+                const val=
+                    clamp(sum/count+rand(scale));
+
+                if(seedRow && y===0)
+                    continue;
+
+                set(x,y,val);
             }
         }
 
-        step = half;
-        scale *= ROUGHNESS;
+        step=half;
+        scale*=ROUGHNESS;
+    }
+
+
+    // ================================
+    // Soma montanhas ao terreno
+    // ================================
+
+    for(let y=0;y<N;y++){
+
+        const factor=y/(N-1);
+
+        for(let x=0;x<N;x++){
+
+            const idx=y*N+x;
+
+            map[idx]=clamp(
+
+                map[idx]+
+                mountains[x]*factor*2.5
+
+            );
+        }
     }
 
     return map;

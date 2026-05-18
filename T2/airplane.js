@@ -89,7 +89,7 @@ function createAirplane(){
     propellerGroup.add(blade2);
     propellerGroup.rotateZ(THREE.MathUtils.degToRad(90));
     propellerGroup.rotateY(THREE.MathUtils.degToRad(90));
-    propellerGroup.position.set(0, 60, 0);
+    propellerGroup.position.set(0, 58, 0);
     airplane.propeller = propellerGroup;
     
     airplane.add(propellerGroup);
