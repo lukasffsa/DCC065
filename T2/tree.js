@@ -32,6 +32,7 @@ export function createTree(x, z) {
     leaf2.add(leaf3);
     leaf3.position.y = leaf_height / 2 - 1;
 
+    stem.castShadow = true;
     return stem;
 }
 

@@ -100,7 +100,7 @@ function createAirplane(){
     airplane.add(upWing);
     scene.add(airplane);
 
-
+    airplane.castShadow = true;
     return airplane
 }
 

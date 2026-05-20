@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { onWindowResize, initDefaultBasicLight } from "../libs/util/util.js";
+import { onWindowResize } from "../libs/util/util.js";
 import { airplane } from './airplane.js'
 import { scene, renderer } from './config.js';
 import { updateAirplane } from './raycast.js'
@@ -13,8 +13,8 @@ window.addEventListener(
     false
 );
 
-let light = initDefaultBasicLight(scene);
-scene.add(light);
+// let light = initDefaultBasicLight(scene);
+// scene.add(light);
 
 
 // ================= MIRA =================
@@ -121,9 +121,32 @@ document.addEventListener(
 
 });
 
+// ================= SOMBRAS =================
+
+let position = new THREE.Vector3(2000,900,-2000);
+let lightColor = "rgb(200,200,200)";
+let dirLight = new THREE.DirectionalLight(lightColor, 5.0);
+dirLight.position.copy(position);
+dirLight.castShadow = true;
+
+dirLight.shadow.mapSize.width = 2048;
+dirLight.shadow.mapSize.height = 2048;
+
+dirLight.shadow.camera.left = -5000;
+dirLight.shadow.camera.right = 5000;
+dirLight.shadow.camera.top = 5000;
+dirLight.shadow.camera.bottom = -5000;
+
+dirLight.shadow.camera.near = 1;
+dirLight.shadow.camera.far = 10000;
+
+scene.add(dirLight);
+
 buildInterface();
 render();
+// const helper = new THREE.CameraHelper(dirLight.shadow.camera);
 
+scene.add(helper);
 
 function render(){
 

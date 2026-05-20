@@ -226,13 +226,33 @@ function buildGeometry(map) {
 // ─── Monta o Group (mesh sólido + wireframe) ──────────────────────────────────
 
 function buildTerrainGroup(geo) {
-    const solid = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
-    const wire  = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-        color: 0x000000, wireframe: true, transparent: true, opacity: 0.07,
-    }));
+
+    const solid = new THREE.Mesh(
+        geo,
+        new THREE.MeshLambertMaterial({
+            vertexColors: true
+        })
+    );
+
+    // recebe sombras
+    solid.receiveShadow = true;
+
+
+    const wire = new THREE.Mesh(
+        geo,
+        new THREE.MeshBasicMaterial({
+            color: 0x000000,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.07,
+        })
+    );
+
     const group = new THREE.Group();
+
     group.add(solid);
     group.add(wire);
+
     return group;
 }
 
@@ -266,16 +286,37 @@ function samplePositions(count, minDist, area) {
 }
 
 function addTrees(group, geo) {
+
     samplePositions(numTreesPerPlane, minTreeDistance, treeSpawnArea).forEach(({ x, z }) => {
-        const y    = getHeightAt(geo, x, z);
-        const tree = Math.random() < 0.5
-            ? createTree(x, z)
-            : createAlternativeTree(x, z);
+        const y = getHeightAt(
+            geo,
+            x,
+            z
+        );
+
+        const tree =
+            Math.random() < 0.5
+            ? createTree(x,z)
+            : createAlternativeTree(x,z);
+
+
         tree.position.y += y;
+
+        // todos os meshes da árvore geram sombra
+        tree.traverse((child)=>{
+
+            if(child.isMesh){
+
+                child.castShadow = true;
+
+            }
+
+        });
+
         group.add(tree);
+
     });
 }
-
 // ─── Criação de chunk ─────────────────────────────────────────────────────────
 // seedRow: linha de alturas a fixar na borda frontal (Z mínimo do chunk).
 // Retorna { group, lastRow } para encadear o próximo chunk.
