@@ -100,6 +100,7 @@ function createAirplane(){
     airplane.add(upWing);
     scene.add(airplane);
 
+    airplane.box = new THREE.Box3();
     airplane.castShadow = true;
     return airplane
 }

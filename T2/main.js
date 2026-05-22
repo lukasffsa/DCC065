@@ -1,171 +1,331 @@
 import * as THREE from 'three';
 import { onWindowResize } from "../libs/util/util.js";
-import { airplane } from './airplane.js'
+
+import { airplane } from './airplane.js';
+
 import { scene, renderer } from './config.js';
-import { updateAirplane } from './raycast.js'
-import { updateCamera, camera } from './camera.js'
-import { updatePlane, plane_array} from './terrain.js'
+
+import { updateAirplane } from './raycast.js';
+
+import { updateCamera, camera } from './camera.js';
+
+import { updatePlane, plane_array } from './terrain.js';
+
 import { buildInterface, stats } from './fog.js';
+
+import {
+    createEnemies,
+    updateEnemies
+}
+from './enemy.js';
+
+import {
+    updatePlayerShoot
+}
+from './shooting.js';
+
+import {
+    updateCollisions
+}
+from './collision.js';
+
 
 window.addEventListener(
     'resize',
-    function(){ onWindowResize(camera, renderer)},
+    ()=>onWindowResize(
+        camera,
+        renderer
+    ),
     false
 );
 
-// let light = initDefaultBasicLight(scene);
-// scene.add(light);
 
+//================ MIRA =================
 
-// ================= MIRA =================
+const mira=document.createElement("div");
 
-const mira = document.createElement("div");
+mira.innerHTML="⊕";
 
-mira.innerHTML = "⊕";
-
-mira.style.position = "fixed";
-mira.style.fontSize = "30px";
-mira.style.color = "white";
-mira.style.pointerEvents = "none";
-mira.style.zIndex = "9999";
+mira.style.position="fixed";
+mira.style.fontSize="30px";
+mira.style.color="white";
+mira.style.pointerEvents="none";
+mira.style.zIndex="9999";
 
 document.body.appendChild(mira);
 
-renderer.domElement.style.cursor = "none";
-document.addEventListener("mousemove",(e)=>{
-    mira.style.left = e.clientX + "px";
-    mira.style.top = e.clientY + "px";
-});
+renderer.domElement.style.cursor="none";
 
-// ================= TEXTO PAUSA =================
+document.addEventListener(
+"mousemove",
+(e)=>{
+    mira.style.left=
+    e.clientX+"px";
 
-const pauseText = document.createElement("div");
-pauseText.innerHTML = "PAUSADO";
-pauseText.style.position = "fixed";
-pauseText.style.top = "50%";
-pauseText.style.left = "50%";
-pauseText.style.transform ="translate(-50%,-50%)";
-pauseText.style.fontSize = "50px";
-pauseText.style.fontWeight = "bold";
-pauseText.style.color = "white";
-pauseText.style.background ="rgba(0,0,0,0.5)";
-pauseText.style.padding = "20px";
-pauseText.style.borderRadius = "10px";
-pauseText.style.display = "none";
-pauseText.style.zIndex = "9999";
-document.body.appendChild(pauseText);
+    mira.style.top=
+    e.clientY+"px";
+}
+);
 
 
-// ================= PAUSA =================
+//================ PAUSA =================
 
-let paused = false;
+const pauseText=
+document.createElement("div");
+
+pauseText.innerHTML=
+"PAUSADO";
+
+pauseText.style.position=
+"fixed";
+
+pauseText.style.top="50%";
+pauseText.style.left="50%";
+
+pauseText.style.transform=
+"translate(-50%,-50%)";
+
+pauseText.style.fontSize="50px";
+
+pauseText.style.fontWeight=
+"bold";
+
+pauseText.style.color=
+"white";
+
+pauseText.style.background=
+"rgba(0,0,0,0.5)";
+
+pauseText.style.padding=
+"20px";
+
+pauseText.style.borderRadius=
+"10px";
+
+pauseText.style.display=
+"none";
+
+document.body.appendChild(
+pauseText
+);
+
+let paused=false;
 
 document.addEventListener(
 'keydown',
 (event)=>{
-    if(event.code === 'Escape'){
-        paused = true;
-        pauseText.style.display = "block";
-        renderer.domElement.style.cursor = "default";
-        mira.style.display = "none";
-    }
 
-});
+if(event.code==='Escape'){
 
-renderer.domElement.addEventListener('click', ()=>{
-    if(paused){
-        paused = false;
-        pauseText.style.display = "none";
-        renderer.domElement.style.cursor = "none";
-        mira.style.display = "block";
-    }
-});
+paused=true;
 
-// ================= VELOCIDADE =================
+pauseText.style.display=
+"block";
 
-let speed = 5; 
+renderer.domElement.style.cursor=
+"default";
 
-const speedText = document.createElement("div");
-speedText.innerHTML = "Velocidade: NORMAL";
-speedText.style.position = "fixed";
-speedText.style.bottom = "20px";
-speedText.style.left = "20px";
-speedText.style.color = "white";
-speedText.style.fontSize = "12px";
-speedText.style.background ="rgba(0,0,0,0.5)";
-speedText.style.padding = "10px";
-speedText.style.borderRadius = "10px";
-speedText.style.zIndex = "9999";
-document.body.appendChild(speedText);
+mira.style.display=
+"none";
+
+}
+
+}
+);
+
+renderer.domElement.addEventListener(
+'click',
+()=>{
+
+if(paused){
+
+paused=false;
+
+pauseText.style.display=
+"none";
+
+renderer.domElement.style.cursor=
+"none";
+
+mira.style.display=
+"block";
+
+}
+
+}
+);
 
 
-// teclas
+//================ VELOCIDADE =================
+
+let speed=7;
+
+const speedText=
+document.createElement("div");
+
+speedText.innerHTML=
+"Velocidade: NORMAL";
+
+speedText.style.position=
+"fixed";
+
+speedText.style.bottom=
+"20px";
+
+speedText.style.left=
+"20px";
+
+speedText.style.color=
+"white";
+
+speedText.style.background=
+"rgba(0,0,0,.5)";
+
+speedText.style.padding=
+"10px";
+
+document.body.appendChild(
+speedText
+);
+
+
 document.addEventListener(
 'keydown',
 (event)=>{
 
-    if(event.code === 'Digit1'){
-        speed = 5;
-        speedText.innerHTML = "Velocidade: LENTA";
-    }
+if(event.code==='Digit1'){
 
-    else if(event.code === 'Digit2'){
-        speed = 7; 
-        speedText.innerHTML = "Velocidade: NORMAL";
-    }
+speed=5;
 
-    else if(event.code === 'Digit3'){
-        speed = 9;
-        speedText.innerHTML = "Velocidade: RÁPIDA";
-    }
+speedText.innerHTML=
+"Velocidade: LENTA";
 
-});
+}
 
-// ================= SOMBRAS =================
+else if(event.code==='Digit2'){
 
-let position = new THREE.Vector3(2000,900,-2000);
-let lightColor = "rgb(200,200,200)";
-let dirLight = new THREE.DirectionalLight(lightColor, 5.0);
-dirLight.position.copy(position);
-dirLight.castShadow = true;
+speed=7;
 
-dirLight.shadow.mapSize.width = 2048;
-dirLight.shadow.mapSize.height = 2048;
+speedText.innerHTML=
+"Velocidade: NORMAL";
 
-dirLight.shadow.camera.left = -5000;
-dirLight.shadow.camera.right = 5000;
-dirLight.shadow.camera.top = 5000;
-dirLight.shadow.camera.bottom = -5000;
+}
 
-dirLight.shadow.camera.near = 1;
-dirLight.shadow.camera.far = 10000;
+else if(event.code==='Digit3'){
 
-scene.add(dirLight);
+speed=9;
+
+speedText.innerHTML=
+"Velocidade: RÁPIDA";
+
+}
+
+}
+);
+
+
+//================ SOMBRAS =================
+
+let dirLight=
+new THREE.DirectionalLight(
+"rgb(200,200,200)",
+5
+);
+
+dirLight.position.set(
+2000,
+900,
+-2000
+);
+
+dirLight.castShadow=true;
+
+dirLight.shadow.mapSize.width=
+2048;
+
+dirLight.shadow.mapSize.height=
+2048;
+
+dirLight.shadow.camera.left=
+-5000;
+
+dirLight.shadow.camera.right=
+5000;
+
+dirLight.shadow.camera.top=
+5000;
+
+dirLight.shadow.camera.bottom=
+-5000;
+
+dirLight.shadow.camera.near=1;
+
+dirLight.shadow.camera.far=
+10000;
+
+scene.add(
+dirLight
+);
+
+// opcional
+
+// const helper =
+// new THREE.CameraHelper(
+// dirLight.shadow.camera
+// );
+
+// scene.add(helper);
+
+
+//================ INIT =================
 
 buildInterface();
-render();
-// const helper = new THREE.CameraHelper(dirLight.shadow.camera);
 
-scene.add(helper);
+createEnemies();
 
-function render(){
+animate();
 
-    stats.update();
 
-    if(!paused){
+//================ LOOP =================
 
-        airplane.propeller.rotation.z += 10;
+function animate(){
 
-        updatePlane(plane_array, speed);
+requestAnimationFrame(
+animate
+);
 
-        updateAirplane();
-        updateCamera();
-    }
+stats.update();
 
-    requestAnimationFrame(render);
+if(!paused){
 
-    renderer.render(
-        scene,
-        camera
+    airplane.propeller.rotation.z +=10;
+
+    updatePlane(
+        plane_array,
+        speed
     );
+
+    updateAirplane();
+
+    updateCamera();
+
+    updatePlayerShoot(
+        airplane
+    );
+
+    updateEnemies(
+        airplane
+    );
+
+    updateCollisions(
+        airplane
+    );
+
+}
+
+renderer.render(
+scene,
+camera
+);
+
 }
