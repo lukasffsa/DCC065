@@ -147,7 +147,7 @@ export function updateEnemies(){
 
         // voltou a atirar
 
-        if(t-enemy.lastShot > 333){
+        if(t-enemy.lastShot > 999){
             shootEnemy(enemy);
             enemy.lastShot=t;
         }
