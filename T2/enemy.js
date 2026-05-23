@@ -152,8 +152,6 @@ export function updateEnemies(){
             enemy.lastShot=t;
         }
 
-
-
         // remove inimigo distante
 
         if(enemy.position.z < -1200){
