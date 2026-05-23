@@ -14,7 +14,7 @@ export function createTree(x, z) {
     const leaf_radius = leaf_height / 2;
 
     let leafGeometry = new THREE.ConeGeometry(leaf_radius, leaf_height, 32);
-    let leafMaterial = new THREE.MeshPhongMaterial({ color: 0x2d7d32, shininess: 300 });
+    let leafMaterial = new THREE.MeshPhongMaterial({ color: 0x2d7d32, flatShading: true });
 
     let leaf1 = new THREE.Mesh(leafGeometry, leafMaterial);
     let leaf2 = new THREE.Mesh(leafGeometry, leafMaterial);

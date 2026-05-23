@@ -9,7 +9,7 @@ const yS = 64;      // segmentos Z (potência de 2)
 const COLS = xS + 1;
 const ROWS = yS + 1;
 const MAX_HEIGHT =  90;
-const MIN_HEIGHT = -50;
+const MIN_HEIGHT = -100;
 const ROUGHNESS  =  0.55;
 
 // ─── Diamond-Square ───────────────────────────────────────────────────────────
@@ -36,8 +36,8 @@ function diamondSquare(seedRow = null) {
 
         const profile = new Float32Array(N);
 
-        profile[0] = rand(10);
-        profile[N-1] = rand(10);
+        profile[0] = rand(100);
+        profile[N-1] = rand(50);
 
         function midpoint(left,right,disp){
 
@@ -102,11 +102,7 @@ function diamondSquare(seedRow = null) {
 
                 )/4;
 
-                set(
-                    x+half,
-                    y+half,
-                    clamp(avg+rand(scale))
-                );
+                set(x+half, y+half, clamp(avg+rand(scale)));
             }
         }
 
@@ -287,17 +283,11 @@ function samplePositions(count, minDist, area) {
 
 function addTrees(group, geo) {
 
-    samplePositions(numTreesPerPlane, minTreeDistance, treeSpawnArea).forEach(({ x, z }) => {
-        const y = getHeightAt(
-            geo,
-            x,
-            z
-        );
+    samplePositions(
+        numTreesPerPlane, minTreeDistance, treeSpawnArea).forEach(({ x, z }) => {
+        const y = getHeightAt(geo,x,z); 
 
-        const tree =
-            Math.random() < 0.5
-            ? createTree(x,z)
-            : createAlternativeTree(x,z);
+        const tree =Math.random() < 0.5 ? createTree(x,z) : createAlternativeTree(x,z);
 
 
         tree.position.y += y;
