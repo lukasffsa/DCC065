@@ -9,31 +9,9 @@ import { buildInterface, stats } from './fog.js';
 import { createEnemies, updateEnemies } from './enemy.js';
 import { updatePlayerShoot } from './shooting.js';
 import { updateCollisions } from './collision.js';
+import { createCrosshair } from './target.js';
 
 window.addEventListener('resize', ()=> onWindowResize(camera, renderer), false);
-
-//================ MIRA =================
-
-const mira=document.createElement("div");
-
-mira.innerHTML="⊕";
-
-mira.style.position="fixed";
-mira.style.fontSize="30px";
-mira.style.color="white";
-mira.style.pointerEvents="none";
-mira.style.zIndex="9999";
-
-document.body.appendChild(mira);
-
-renderer.domElement.style.cursor="none";
-
-document.addEventListener("mousemove", (e)=>{
-    mira.style.left = e.clientX+"px";
-    mira.style.top = e.clientY+"px";
-  }
-);
-
 
 //================ PAUSA =================
 
@@ -139,6 +117,7 @@ scene.add(dirLight);
 //================ INIT =================
 
 buildInterface();
+const mira = createCrosshair(renderer);
 createEnemies();
 animate();
 

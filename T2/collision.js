@@ -23,7 +23,7 @@ export function updateCollisions(player){
         let bullet = bullets[i];
 
         if(!bullet.box)
-        continue;
+            continue;
 
         bullet.box.setFromObject(bullet);
 
@@ -32,7 +32,7 @@ export function updateCollisions(player){
             let enemy = enemies[j];
 
             if(!enemy.box)
-            continue;
+                continue;
 
             enemy.box.setFromObject(enemy);
 
@@ -71,13 +71,13 @@ export function updateCollisions(player){
         let shot = enemyBullets[i];
 
         if(!shot.box)
-        continue;
+            continue;
 
         shot.box.setFromObject(shot);
 
         if(shot.box.intersectsBox(player.box)){
 
-            console.log("PLAYER HIT");
+            player.hit();;
             scene.remove(shot);
 
             enemyBullets.splice(i,1);

@@ -102,6 +102,67 @@ function createAirplane(){
 
     airplane.box = new THREE.Box3();
     airplane.castShadow = true;
+
+    //================ DANO / PISCAR =================
+
+    airplane.isHit=false;
+    airplane.hit=function(){
+
+        if(airplane.isHit)
+            return;
+
+        airplane.isHit=true;
+
+        const originalMaterials=[];
+
+        airplane.traverse((obj)=>{
+
+            if(obj.isMesh){
+
+                originalMaterials.push({mesh:obj, material:obj.material});
+            }
+
+        });
+
+
+        let count=0;
+
+        const interval=setInterval(()=>{
+
+            airplane.traverse((obj)=>{
+
+                if(obj.isMesh){
+
+                    if(count%2===0){
+
+                        obj.material = new THREE.MeshBasicMaterial({color:0xff0000});
+
+                    }
+
+                    else{
+
+                        let original = originalMaterials.find(m=>m.mesh===obj);
+                        obj.material = original.material;
+
+                    }
+
+                }
+
+            });
+
+            count++;
+
+            if(count>8){
+
+                clearInterval(interval);
+                originalMaterials.forEach((m)=>{m.mesh.material = m.material;});
+                airplane.isHit=false;
+
+            }
+
+        },100);
+
+    }
     return airplane
 }
 
