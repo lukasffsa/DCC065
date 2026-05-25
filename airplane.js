@@ -3,7 +3,7 @@ import { scene, boundMaxX } from "./config.js";
 
 const hitCounterDOM = document.createElement('div');
 hitCounterDOM.style.position = 'absolute';
-// hitCounterDOM.style.top = '30px';  
+hitCounterDOM.style.top = '30px';
 
 // ─── CENTRALIZAÇÃO HORIZONTAL PERFEITA ───
 hitCounterDOM.style.left = '50%';
@@ -11,11 +11,10 @@ hitCounterDOM.style.transform = 'translateX(-50%)';
 // ─────────────────────────────────────────
 hitCounterDOM.style.backgroundColor = '#000000';
 hitCounterDOM.style.padding = '20px';
-hitCounterDOM.style.bottom = '10px';
 hitCounterDOM.style.borderRadius ='20px';
 hitCounterDOM.style.color = '#ff0000';
 hitCounterDOM.style.fontFamily = 'monospace';
-hitCounterDOM.style.fontSize = '12px';
+hitCounterDOM.style.fontSize = '24px';
 hitCounterDOM.style.fontWeight = 'bold';
 hitCounterDOM.style.pointerEvents = 'none';
 hitCounterDOM.style.zIndex = '100';

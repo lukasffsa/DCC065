@@ -17,7 +17,7 @@ export function createCrosshair(renderer) {
     mira.style.transform  = "translate(-50%,-50%)";
 
     document.body.appendChild(mira);
-    document.body.style.cursor = "none";
+    renderer.domElement.style.cursor = "none";
 
     // ─── Cor Star Fox ─────────────────────────────────────────────────────────
 
@@ -169,13 +169,13 @@ export function createCrosshair(renderer) {
         pause() {
             paused = true;
             mira.style.display = "none";
-            document.body.style.cursor  = "default";
+            renderer.domElement.style.cursor = "default";
         },
 
         resume() {
             paused = false;
             mira.style.display = "block";
-            document.body.style.cursor = "none";
+            renderer.domElement.style.cursor = "none";
         }
     };
 }

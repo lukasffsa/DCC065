@@ -33,25 +33,30 @@ document.body.appendChild(pauseText);
 let paused = false;
 
 document.addEventListener('keydown', (event)=>{
-
+  
   if(event.code === 'Escape'){
-
     paused = true;
     pauseText.style.display = "block";
-    mira.pause(); 
+    renderer.domElement.style.cursor = "default";
+    mira.style.display = "none";
   }
 
-});
+}
+);
+
 renderer.domElement.addEventListener('click', ()=>{
 
   if(paused){
 
     paused = false;
     pauseText.style.display = "none";
-    mira.resume(); // restaura mira e esconde cursor
+    renderer.domElement.style.cursor = "none";
+    mira.style.display = "block";
+
   }
 
-});
+}
+);
 
 
 //================ VELOCIDADE =================
@@ -96,7 +101,7 @@ document.addEventListener('keydown', (event)=>{
 //================ SOMBRAS =================
 
 let dirLight = new THREE.DirectionalLight("rgb(200,200,200)", 5);
-dirLight.position.set(500,800,-1000);
+dirLight.position.set(0,800,-1000);
 dirLight.castShadow = true;
 dirLight.shadow.mapSize.width = 2048;
 dirLight.shadow.mapSize.height = 2048;
