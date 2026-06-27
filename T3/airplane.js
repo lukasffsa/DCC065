@@ -87,7 +87,7 @@ function createAirplane() {
   let propellerGroup = new THREE.Group();
 
   // estrutura principal
-  airplane.position.set(0.0, 100, -550);
+  airplane.position.set(0.0, 100, -1050);
   airplane.rotateX(THREE.MathUtils.degToRad(90));
 
   // asas

@@ -9,7 +9,7 @@ export function createTree(x, z) {
     stem.position.set(x, stem_height / 2, z);
 
     const base_leaf_height = 40;
-    const height_variation = (Math.random() * 28) - 5;
+    const height_variation = (Math.random() * 5) - 3;
     const leaf_height = base_leaf_height + height_variation;
     const leaf_radius = leaf_height / 2;
 

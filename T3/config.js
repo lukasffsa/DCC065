@@ -6,8 +6,8 @@ scene.background = new THREE.Color("rgb(175,207,220)");
 
 export let renderer = initRenderer()
 
-export const plane_width = 2800;
-export const plane_height = 2000;
+export const plane_width = 7000;
+export const plane_height = 4000;
 export const grassColor = "rgb(34, 139, 34)";
 export const meshColor = "rgb(50, 50, 50)";
 
@@ -35,11 +35,11 @@ export const intersectionPoint = new THREE.Vector3();
 // arvore
 export const stem_height = 20;
 export const stem_radius = 5;
-export const numTreesPerPlane = 100;
+export const numTreesPerPlane = 150;
 export const minTreeDistance = 100;
 export const treeSpawnArea = {
-  minX: -1300,
-  maxX: 1300,
+  minX: -3500,
+  maxX: 3500,
   minZ: -plane_height / 2,
   maxZ: plane_height / 2
 };
