@@ -32,6 +32,15 @@ const SMOOTH_PASSES = 3;
 // a inclinação também seja contínua, eliminando a "dobra" visível na costura.
 const SEAM_FEATHER_ROWS = 10;
 
+// Quantos chunks ficam carregados e visíveis simultaneamente à frente da
+// câmera. Com apenas 2 (valor antigo), o próximo chunk só existia quando o
+// mais antigo já estava quase saindo de cena — na prática só havia um chunk
+// realmente à frente em boa parte do tempo, o que limitava a sensação de
+// profundidade/movimento e fazia o terreno seguinte "aparecer" de repente
+// saindo da neblina. Com mais chunks encadeados (mesma costura suave), há
+// sempre um trecho bem maior de terreno real carregado à frente.
+const NUM_ACTIVE_CHUNKS = 5;
+
 export const WATER_LEVEL = -400;
 
 // ─── Uniforms compartilhados ──────────────────────────────────────────────────
@@ -59,7 +68,7 @@ const terrainVertexShader = /* glsl */ `
     varying vec3  vNormal;
     varying vec3  vNormalView;
     varying vec2  vObjXZ;
-    varying float vFogDepth;
+    varying vec2  vWorldXZ;
 
     void main() {
         vHeight     = position.y;
@@ -67,11 +76,12 @@ const terrainVertexShader = /* glsl */ `
         vNormalView = normalize(normalMatrix * normal);
         vObjXZ      = position.xz;
 
+        // Posição no mundo (XZ) — usada para a fog baseada em distância
+        // horizontal até a câmera, em vez de distância 3D completa.
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vWorldXZ = worldPosition.xz;
+
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-
-        // Distância euclideana — correta para câmera aérea inclinada
-        vFogDepth   = length(mvPosition.xyz);
-
         gl_Position = projectionMatrix * mvPosition;
     }
 `;
@@ -81,7 +91,7 @@ const terrainFragmentShader = /* glsl */ `
     varying vec3  vNormal;
     varying vec3  vNormalView;
     varying vec2  vObjXZ;
-    varying float vFogDepth;
+    varying vec2  vWorldXZ;
 
     uniform float minHeight;
     uniform float maxHeight;
@@ -141,9 +151,16 @@ const terrainFragmentShader = /* glsl */ `
         float diff = max(dot(normalize(vNormalView), normalize(sunDirection)), 0.0);
         col *= 0.28 + 0.72 * diff;
 
-        // Fog: mistura com a cor do céu (mesma do scene.background)
-        // usando distância euclideana — invisível ao jogador
-        float fogFactor = clamp((vFogDepth - fogNear) / max(fogFar - fogNear, 0.001), 0.0, 1.0);
+        // Fog baseada em distância HORIZONTAL (XZ) até a câmera, não em
+        // distância 3D completa. A versão anterior (length(mvPosition.xyz))
+        // incluía a diferença de altura entre vértice e câmera — como a
+        // câmera é elevada, picos altos "ganhavam" distância extra só por
+        // subirem em direção à altura da câmera, fazendo a neblina se colar
+        // especificamente nas encostas mais altas (a "parede" visível).
+        // Distância horizontal ignora a elevação do relevo e dá uma neblina
+        // uniforme, baseada só em quão longe o terreno está no plano do chão.
+        float fogDist   = length(vWorldXZ - cameraPosition.xz);
+        float fogFactor = clamp((fogDist - fogNear) / max(fogFar - fogNear, 0.001), 0.0, 1.0);
         col = mix(col, skyColor, fogFactor);
 
         gl_FragColor = vec4(col, 1.0);
@@ -157,7 +174,6 @@ const waterVertexShader = /* glsl */ `
 
     varying vec3  vNormal;
     varying vec3  vWorldPos;
-    varying float vFogDepth;
 
     void main() {
         vec3 pos = position;
@@ -176,7 +192,6 @@ const waterVertexShader = /* glsl */ `
         vWorldPos  = (modelMatrix * vec4(pos, 1.0)).xyz;
 
         vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
-        vFogDepth       = length(mvPosition.xyz);
         gl_Position     = projectionMatrix * mvPosition;
     }
 `;
@@ -192,7 +207,6 @@ const waterFragmentShader = /* glsl */ `
 
     varying vec3  vNormal;
     varying vec3  vWorldPos;
-    varying float vFogDepth;
 
     float hash(vec2 p) {
         p  = fract(p * vec2(127.1, 311.7));
@@ -231,8 +245,10 @@ const waterFragmentShader = /* glsl */ `
         float fresnel = pow(1.0 - max(dot(norm, viewDir), 0.0), 3.0);
         float alpha   = mix(0.52, 0.93, fresnel);
 
-        // Fog só no RGB, alpha da água preservado
-        float fogFactor = clamp((vFogDepth - fogNear) / max(fogFar - fogNear, 0.001), 0.0, 1.0);
+        // Fog baseada em distância horizontal (XZ) até a câmera — mesma
+        // lógica do terreno, evita qualquer viés de altura/ondulação da água.
+        float fogDist   = length(vWorldPos.xz - cameraPosition.xz);
+        float fogFactor = clamp((fogDist - fogNear) / max(fogFar - fogNear, 0.001), 0.0, 1.0);
         col = mix(col, skyColor, fogFactor);
 
         gl_FragColor = vec4(col, alpha);
@@ -425,10 +441,16 @@ function buildGeometry(map) {
 // ─── Uniforms de fog — atualizadas em runtime pelo fog.js ────────────────────
 // Exportadas para que fog.js possa ajustá-las via GUI sem recompilar shaders.
 
+// fogNear/fogFar agora são calculados em função de plane_height (em vez de
+// valores fixos pensados para um mundo de 2 chunks). Com NUM_ACTIVE_CHUNKS
+// chunks carregados, a neblina pode se estender por mais de um chunk de
+// distância — aumentando a sensação de escala do cenário — mas ainda
+// termina com folga antes do último chunk carregado, então o jogador nunca
+// vê o "pop" de um chunk sendo criado na borda da névoa.
 export const fogUniforms = {
     skyColor: { value: SKY_COLOR },
-    fogNear:  { value: 2500 },   // começa a ~62% do chunk (4000 * 0.62)
-    fogFar:   { value: 4200 },   // cobre a costura
+    fogNear:  { value: plane_height * 1.5 },   // início da névoa bem além de 1 chunk
+    fogFar:   { value: plane_height * 2.6 },   // cobertura ampla, ainda dentro da área carregada
 };
 
 // ─── Group do terreno ─────────────────────────────────────────────────────────
@@ -574,10 +596,27 @@ function createChunk(zOffset, seedRow = null, seedRow2 = null) {
 }
 
 // ─── Estado ───────────────────────────────────────────────────────────────────
+// Cria a cadeia inicial de NUM_ACTIVE_CHUNKS chunks, cada um encadeado ao
+// anterior via seedRow/seedRow2 (mesma costura suave usada na reposição em
+// runtime), então a cadeia inteira já nasce sem "dobras" nas junções.
 
-const chunk0 = createChunk(0);
-const chunk1 = createChunk(plane_height, chunk0.lastRow, chunk0.secondLastRow);
-let _chunks = [chunk0, chunk1];
+function createInitialChunks(count) {
+    const chunks = [];
+    let previous = null;
+
+    for (let i = 0; i < count; i++) {
+        const zOffset  = i * plane_height;
+        const seedRow  = previous ? previous.lastRow       : null;
+        const seedRow2 = previous ? previous.secondLastRow : null;
+        const chunk    = createChunk(zOffset, seedRow, seedRow2);
+        chunks.push(chunk);
+        previous = chunk;
+    }
+
+    return chunks;
+}
+
+let _chunks = createInitialChunks(NUM_ACTIVE_CHUNKS);
 
 export let plane_array = _chunks.map(c => c.group);
 export const speed = 7;
@@ -591,8 +630,15 @@ export function updatePlane(plane_array, speed) {
 
     if (_chunks[0].group.position.z < -plane_height) {
         scene.remove(_chunks[0].group);
-        const newZ     = _chunks[1].group.position.z + plane_height;
-        const newChunk = createChunk(newZ, _chunks[1].lastRow, _chunks[1].secondLastRow);
+
+        // O novo chunk sempre continua a partir do chunk mais à frente da
+        // cadeia atual (o último do array), não de uma posição fixa — assim
+        // o número de chunks ativos permanece constante em NUM_ACTIVE_CHUNKS
+        // independente de quantos existirem.
+        const frontChunk = _chunks[_chunks.length - 1];
+        const newZ        = frontChunk.group.position.z + plane_height;
+        const newChunk     = createChunk(newZ, frontChunk.lastRow, frontChunk.secondLastRow);
+
         _chunks.push(newChunk);
         _chunks.shift();
         plane_array.length = 0;
