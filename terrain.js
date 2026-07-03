@@ -9,30 +9,10 @@ const yS = 64;
 const COLS = xS + 1;
 const ROWS = yS + 1;
 const MAX_HEIGHT =  90;   // mais alto — picos mais dramáticos
-const MIN_HEIGHT = -500;   // mais fundo — vales mais profundos
+const MIN_HEIGHT = -1000;   // mais fundo — vales mais profundos
+const ROUGHNESS  =  0.55;  // menor = transições mais suaves entre picos e vales
 
-// Roughness do diamond-square (persistência da amplitude a cada subdivisão).
-// Valores muito baixos (ex.: 0.05) fazem a amplitude do ruído colapsar já nas
-// primeiras 1-2 subdivisões, deixando o relevo definido só pelos vértices
-// grosseiros iniciais — sem ruído fino para suavizar as junções entre eles,
-// o que produz o aspecto "facetado"/blocado com arestas abruptas.
-// 0.55 mantém detalhe em várias escalas (grosseira + média + fina), gerando
-// um relevo com transições orgânicas mesmo mantendo a mesma amplitude total.
-const ROUGHNESS = 0.55;
-
-// Quantas passadas de blur gaussiano 5×5 aplicar no final. Cada passada extra
-// remove ruído de alta frequência (o "serrilhado" fino) preservando as
-// ondulações de média/grande escala — é isso que dá a sensação de "montanha
-// suave" em vez de "rocha facetada", sem achatar os picos e vales.
-const SMOOTH_PASSES = 3;
-
-// Quantas linhas, a partir da costura entre chunks, recebem um blend com a
-// extrapolação da inclinação do chunk anterior (feathering). Isso garante
-// não só que a altura bata exatamente na borda (como já acontecia), mas que
-// a inclinação também seja contínua, eliminando a "dobra" visível na costura.
-const SEAM_FEATHER_ROWS = 10;
-
-export const WATER_LEVEL = -400;
+export const WATER_LEVEL = -800;
 
 // ─── Uniforms compartilhados ──────────────────────────────────────────────────
 
@@ -239,47 +219,9 @@ const waterFragmentShader = /* glsl */ `
     }
 `;
 
-// ─── Blur gaussiano 5×5 (uma passada) ────────────────────────────────────────
-// Extraído para função separada para poder ser aplicado múltiplas vezes —
-// múltiplas passadas de um kernel pequeno aproximam um kernel maior e mais
-// suave, removendo o ruído de alta frequência responsável pelo aspecto
-// "facetado" sem achatar as ondulações de média/grande escala.
-
-const GAUSS_K5 = [
-     1,  4,  6,  4,  1,
-     4, 16, 24, 16,  4,
-     6, 24, 36, 24,  6,
-     4, 16, 24, 16,  4,
-     1,  4,  6,  4,  1,
-];
-
-function gaussianBlurPass(map, N) {
-    const out = new Float32Array(N * N);
-    for (let y = 0; y < N; y++) {
-        for (let x = 0; x < N; x++) {
-            let sum = 0, total = 0, k = 0;
-            for (let dy = -2; dy <= 2; dy++) {
-                for (let dx = -2; dx <= 2; dx++) {
-                    const nx = Math.min(Math.max(x + dx, 0), N - 1);
-                    const ny = Math.min(Math.max(y + dy, 0), N - 1);
-                    sum   += map[ny * N + nx] * GAUSS_K5[k];
-                    total += GAUSS_K5[k];
-                    k++;
-                }
-            }
-            out[y * N + x] = sum / total;
-        }
-    }
-    return out;
-}
-
 // ─── Diamond-Square ───────────────────────────────────────────────────────────
-// seedRow:  última linha do chunk anterior — garante altura idêntica na costura.
-// seedRow2: penúltima linha do chunk anterior — usada para extrapolar a
-//           inclinação e alimentar o feathering, garantindo que a costura
-//           também seja suave em derivada (sem "dobra" visível).
 
-function diamondSquare(seedRow = null, seedRow2 = null) {
+function diamondSquare(seedRow = null) {
     const N   = COLS;
     const map = new Float32Array(N * N);
 
@@ -358,53 +300,48 @@ function diamondSquare(seedRow = null, seedRow2 = null) {
         }
     }
 
-    // Múltiplas passadas de blur gaussiano 5×5 — elimina o serrilhado fino
-    // (arestas abruptas) preservando picos e vales de maior escala.
-    let smoothed = map;
-    for (let pass = 0; pass < SMOOTH_PASSES; pass++) {
-        smoothed = gaussianBlurPass(smoothed, N);
-    }
-    smoothed.forEach((v, i) => { map[i] = v; });
-
-    // Re-fixar seedRow após o blur: o kernel com padding espelhado altera
-    // levemente os vértices da linha 0, fazendo a borda do chunk divergir do
-    // seedRow que o chunk anterior exportou. Sobrescrever aqui garante
-    // costura com altura idêntica, independente do kernel.
-    if (seedRow) {
-        for (let x = 0; x < N; x++) map[x] = seedRow[x];
-
-        // Feathering da costura: além de bater a altura na linha 0, as
-        // próximas SEAM_FEATHER_ROWS linhas são misturadas com a extrapolação
-        // linear da inclinação que o chunk anterior tinha ao chegar na borda
-        // (seedRow - seedRow2 = tendência). Isso garante continuidade também
-        // na derivada, eliminando a "dobra"/crista visível na transição entre
-        // planos. O peso decai suavemente, então o relevo volta a ser
-        // totalmente independente (variado) longe da costura.
-        if (seedRow2) {
-            const trend = new Float32Array(N);
-            for (let x = 0; x < N; x++) trend[x] = seedRow[x] - seedRow2[x];
-
-            const K = Math.min(SEAM_FEATHER_ROWS, N - 1);
-            for (let row = 1; row <= K; row++) {
-                const t      = row / (K + 1);
-                const weight = (1 - t) * (1 - t); // decaimento quadrático suave
-                for (let x = 0; x < N; x++) {
-                    const idx    = row * N + x;
-                    const target = clamp(seedRow[x] + trend[x] * row);
-                    map[idx]     = map[idx] * (1 - weight) + target * weight;
+    // Suavização gaussiana 5×5 — elimina arestas pontudas sem achatar picos
+    const k5 = [
+         1,  4,  6,  4,  1,
+         4, 16, 24, 16,  4,
+         6, 24, 36, 24,  6,
+         4, 16, 24, 16,  4,
+         1,  4,  6,  4,  1,
+    ];
+    const smooth = new Float32Array(N * N);
+    for (let y = 0; y < N; y++) {
+        for (let x = 0; x < N; x++) {
+            let sum = 0, total = 0, k = 0;
+            for (let dy = -2; dy <= 2; dy++) {
+                for (let dx = -2; dx <= 2; dx++) {
+                    const nx = Math.min(Math.max(x + dx, 0), N - 1);
+                    const ny = Math.min(Math.max(y + dy, 0), N - 1);
+                    sum   += map[ny * N + nx] * k5[k];
+                    total += k5[k];
+                    k++;
                 }
             }
+            smooth[y * N + x] = sum / total;
         }
+    }
+    smooth.forEach((v, i) => { map[i] = v; });
+
+    // Re-fixar seedRow após suavização: a gaussiana 5×5 com padding espelhado
+    // altera levemente os vértices da linha 0, fazendo a borda do chunk
+    // divergir do seedRow que o chunk anterior exportou.
+    // Sobrescrever aqui garante costura perfeita independente do kernel.
+    if (seedRow) {
+        for (let x = 0; x < N; x++) map[x] = seedRow[x];
     }
 
     return map;
 }
 
-// ─── Extrai uma linha do heightmap ───────────────────────────────────────────
+// ─── Extrai última linha do heightmap ────────────────────────────────────────
 
-function extractRow(map, rowIndex) {
+function extractLastRow(map) {
     const row = new Float32Array(COLS);
-    for (let x = 0; x < COLS; x++) row[x] = map[rowIndex * COLS + x];
+    for (let x = 0; x < COLS; x++) row[x] = map[(ROWS - 1) * COLS + x];
     return row;
 }
 
@@ -534,23 +471,23 @@ function samplePositions(count, minDist, area) {
     return out;
 }
 
-// Pequeno "encaixe" vertical: a base da árvore fica ligeiramente abaixo da
-// altura exata da malha, garantindo que nunca haja um gap visível (flutuando)
-// mesmo com pequenas imprecisões do modelo 3D — sem enterrar o tronco.
-const TREE_EMBED = 0.6;
-
 function addTrees(group, geo) {
     samplePositions(numTreesPerPlane, minTreeDistance, treeSpawnArea).forEach(({ x, z }) => {
         const y = getHeightAt(geo, x, z);
         if (y <= WATER_LEVEL + 4) return;
 
-        // Altura exata no ponto onde a árvore será plantada — a mesma usada
-        // pela malha visual, então a base do tronco coincide com a superfície.
-        // (O terreno agora é suave o bastante para que amostrar vizinhos e
-        // usar o máximo, como antes, não seja mais necessário — aquela
-        // abordagem overcorrigia e fazia as árvores flutuarem em encostas.)
+        // Amostrar os 4 vizinhos imediatos e usar o máximo local —
+        // evita que a árvore afunde em encostas íngremes onde o ponto
+        // exato cai entre dois vértices com grande diferença de altura.
+        const offset = plane_width / xS;  // tamanho de uma célula
+        const yN  = getHeightAt(geo, x,          z - offset);
+        const yS_ = getHeightAt(geo, x,          z + offset);
+        const yW  = getHeightAt(geo, x - offset, z);
+        const yE  = getHeightAt(geo, x + offset, z);
+        const yBase = Math.max(y, yN, yS_, yW, yE);
+
         const tree = Math.random() < 0.5 ? createTree(x, z) : createAlternativeTree(x, z);
-        tree.position.y += y - TREE_EMBED;
+        tree.position.y += yBase;
         tree.traverse(child => { if (child.isMesh) child.castShadow = true; });
         group.add(tree);
     });
@@ -558,25 +495,21 @@ function addTrees(group, geo) {
 
 // ─── Criação de chunk ─────────────────────────────────────────────────────────
 
-function createChunk(zOffset, seedRow = null, seedRow2 = null) {
-    const map   = diamondSquare(seedRow, seedRow2);
+function createChunk(zOffset, seedRow = null) {
+    const map   = diamondSquare(seedRow);
     const geo   = buildGeometry(map);
     const group = buildTerrainGroup(geo);
     group.add(createWaterPlane());
     group.position.z = zOffset;
     scene.add(group);
     addTrees(group, geo);
-    return {
-        group,
-        lastRow:       extractRow(map, ROWS - 1),
-        secondLastRow: extractRow(map, ROWS - 2),
-    };
+    return { group, lastRow: extractLastRow(map) };
 }
 
 // ─── Estado ───────────────────────────────────────────────────────────────────
 
 const chunk0 = createChunk(0);
-const chunk1 = createChunk(plane_height, chunk0.lastRow, chunk0.secondLastRow);
+const chunk1 = createChunk(plane_height, chunk0.lastRow);
 let _chunks = [chunk0, chunk1];
 
 export let plane_array = _chunks.map(c => c.group);
@@ -592,7 +525,7 @@ export function updatePlane(plane_array, speed) {
     if (_chunks[0].group.position.z < -plane_height) {
         scene.remove(_chunks[0].group);
         const newZ     = _chunks[1].group.position.z + plane_height;
-        const newChunk = createChunk(newZ, _chunks[1].lastRow, _chunks[1].secondLastRow);
+        const newChunk = createChunk(newZ, _chunks[1].lastRow);
         _chunks.push(newChunk);
         _chunks.shift();
         plane_array.length = 0;
