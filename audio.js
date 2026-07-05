@@ -12,11 +12,11 @@ const SHOOTING_POOL_SIZE = 3;
 export let enemyDownSoundPool = [];
 const ENEMY_DOWN_POOL_SIZE = 3;
 
-export function initAudio(camera) {
+export function initAudio(camera, manager) {
   listener = new THREE.AudioListener();
   camera.add(listener); 
   
-  audioLoader = new THREE.AudioLoader();
+  audioLoader = new THREE.AudioLoader(manager);
 
   bgMusic = new THREE.Audio(listener);
   audioLoader.load('assets/audio/background_music.mp3', (buffer) => {
@@ -59,10 +59,12 @@ export function initAudio(camera) {
   });
   
   hpSound = new THREE.Audio(listener);
+  hpSound.offset = 0.70;
+
   audioLoader.load('assets/audio/hp_sound.mp3', (buffer) => {
     hpSound.setBuffer(buffer);
     hpSound.setLoop(false);
-    hpSound.setVolume(0.7);
+    hpSound.setVolume(0.2);
   });
 }
 
