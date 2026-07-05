@@ -9,10 +9,39 @@ const yS = 64;
 const COLS = xS + 1;
 const ROWS = yS + 1;
 const MAX_HEIGHT =  90;   // mais alto — picos mais dramáticos
-const MIN_HEIGHT = -1000;   // mais fundo — vales mais profundos
-const ROUGHNESS  =  0.55;  // menor = transições mais suaves entre picos e vales
+const MIN_HEIGHT = -500;   // mais fundo — vales mais profundos
 
-export const WATER_LEVEL = -800;
+// Roughness do diamond-square (persistência da amplitude a cada subdivisão).
+// Valores muito baixos (ex.: 0.05) fazem a amplitude do ruído colapsar já nas
+// primeiras 1-2 subdivisões, deixando o relevo definido só pelos vértices
+// grosseiros iniciais — sem ruído fino para suavizar as junções entre eles,
+// o que produz o aspecto "facetado"/blocado com arestas abruptas.
+// 0.55 mantém detalhe em várias escalas (grosseira + média + fina), gerando
+// um relevo com transições orgânicas mesmo mantendo a mesma amplitude total.
+const ROUGHNESS = 0.55;
+
+// Quantas passadas de blur gaussiano 5×5 aplicar no final. Cada passada extra
+// remove ruído de alta frequência (o "serrilhado" fino) preservando as
+// ondulações de média/grande escala — é isso que dá a sensação de "montanha
+// suave" em vez de "rocha facetada", sem achatar os picos e vales.
+const SMOOTH_PASSES = 3;
+
+// Quantas linhas, a partir da costura entre chunks, recebem um blend com a
+// extrapolação da inclinação do chunk anterior (feathering). Isso garante
+// não só que a altura bata exatamente na borda (como já acontecia), mas que
+// a inclinação também seja contínua, eliminando a "dobra" visível na costura.
+const SEAM_FEATHER_ROWS = 10;
+
+// Quantos chunks ficam carregados e visíveis simultaneamente à frente da
+// câmera. Com apenas 2 (valor antigo), o próximo chunk só existia quando o
+// mais antigo já estava quase saindo de cena — na prática só havia um chunk
+// realmente à frente em boa parte do tempo, o que limitava a sensação de
+// profundidade/movimento e fazia o terreno seguinte "aparecer" de repente
+// saindo da neblina. Com mais chunks encadeados (mesma costura suave), há
+// sempre um trecho bem maior de terreno real carregado à frente.
+const NUM_ACTIVE_CHUNKS = 5;
+
+export const WATER_LEVEL = -400;
 
 // ─── Uniforms compartilhados ──────────────────────────────────────────────────
 
@@ -39,7 +68,7 @@ const terrainVertexShader = /* glsl */ `
     varying vec3  vNormal;
     varying vec3  vNormalView;
     varying vec2  vObjXZ;
-    varying float vFogDepth;
+    varying vec2  vWorldXZ;
 
     void main() {
         vHeight     = position.y;
@@ -47,11 +76,12 @@ const terrainVertexShader = /* glsl */ `
         vNormalView = normalize(normalMatrix * normal);
         vObjXZ      = position.xz;
 
+        // Posição no mundo (XZ) — usada para a fog baseada em distância
+        // horizontal até a câmera, em vez de distância 3D completa.
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vWorldXZ = worldPosition.xz;
+
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-
-        // Distância euclideana — correta para câmera aérea inclinada
-        vFogDepth   = length(mvPosition.xyz);
-
         gl_Position = projectionMatrix * mvPosition;
     }
 `;
@@ -61,7 +91,7 @@ const terrainFragmentShader = /* glsl */ `
     varying vec3  vNormal;
     varying vec3  vNormalView;
     varying vec2  vObjXZ;
-    varying float vFogDepth;
+    varying vec2  vWorldXZ;
 
     uniform float minHeight;
     uniform float maxHeight;
@@ -121,9 +151,16 @@ const terrainFragmentShader = /* glsl */ `
         float diff = max(dot(normalize(vNormalView), normalize(sunDirection)), 0.0);
         col *= 0.28 + 0.72 * diff;
 
-        // Fog: mistura com a cor do céu (mesma do scene.background)
-        // usando distância euclideana — invisível ao jogador
-        float fogFactor = clamp((vFogDepth - fogNear) / max(fogFar - fogNear, 0.001), 0.0, 1.0);
+        // Fog baseada em distância HORIZONTAL (XZ) até a câmera, não em
+        // distância 3D completa. A versão anterior (length(mvPosition.xyz))
+        // incluía a diferença de altura entre vértice e câmera — como a
+        // câmera é elevada, picos altos "ganhavam" distância extra só por
+        // subirem em direção à altura da câmera, fazendo a neblina se colar
+        // especificamente nas encostas mais altas (a "parede" visível).
+        // Distância horizontal ignora a elevação do relevo e dá uma neblina
+        // uniforme, baseada só em quão longe o terreno está no plano do chão.
+        float fogDist   = length(vWorldXZ - cameraPosition.xz);
+        float fogFactor = clamp((fogDist - fogNear) / max(fogFar - fogNear, 0.001), 0.0, 1.0);
         col = mix(col, skyColor, fogFactor);
 
         gl_FragColor = vec4(col, 1.0);
@@ -137,7 +174,6 @@ const waterVertexShader = /* glsl */ `
 
     varying vec3  vNormal;
     varying vec3  vWorldPos;
-    varying float vFogDepth;
 
     void main() {
         vec3 pos = position;
@@ -156,7 +192,6 @@ const waterVertexShader = /* glsl */ `
         vWorldPos  = (modelMatrix * vec4(pos, 1.0)).xyz;
 
         vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
-        vFogDepth       = length(mvPosition.xyz);
         gl_Position     = projectionMatrix * mvPosition;
     }
 `;
@@ -172,7 +207,6 @@ const waterFragmentShader = /* glsl */ `
 
     varying vec3  vNormal;
     varying vec3  vWorldPos;
-    varying float vFogDepth;
 
     float hash(vec2 p) {
         p  = fract(p * vec2(127.1, 311.7));
@@ -211,24 +245,66 @@ const waterFragmentShader = /* glsl */ `
         float fresnel = pow(1.0 - max(dot(norm, viewDir), 0.0), 3.0);
         float alpha   = mix(0.52, 0.93, fresnel);
 
-        // Fog só no RGB, alpha da água preservado
-        float fogFactor = clamp((vFogDepth - fogNear) / max(fogFar - fogNear, 0.001), 0.0, 1.0);
+        // Fog baseada em distância horizontal (XZ) até a câmera — mesma
+        // lógica do terreno, evita qualquer viés de altura/ondulação da água.
+        float fogDist   = length(vWorldPos.xz - cameraPosition.xz);
+        float fogFactor = clamp((fogDist - fogNear) / max(fogFar - fogNear, 0.001), 0.0, 1.0);
         col = mix(col, skyColor, fogFactor);
 
         gl_FragColor = vec4(col, alpha);
     }
 `;
 
-// ─── Diamond-Square ───────────────────────────────────────────────────────────
+// ─── Blur gaussiano 5×5 (uma passada) ────────────────────────────────────────
+// Extraído para função separada para poder ser aplicado múltiplas vezes —
+// múltiplas passadas de um kernel pequeno aproximam um kernel maior e mais
+// suave, removendo o ruído de alta frequência responsável pelo aspecto
+// "facetado" sem achatar as ondulações de média/grande escala.
 
-function diamondSquare(seedRow = null) {
+const GAUSS_K5 = [
+     1,  4,  6,  4,  1,
+     4, 16, 24, 16,  4,
+     6, 24, 36, 24,  6,
+     4, 16, 24, 16,  4,
+     1,  4,  6,  4,  1,
+];
+
+function gaussianBlurPass(map, N) {
+    const out = new Float32Array(N * N);
+    for (let y = 0; y < N; y++) {
+        for (let x = 0; x < N; x++) {
+            let sum = 0, total = 0, k = 0;
+            for (let dy = -2; dy <= 2; dy++) {
+                for (let dx = -2; dx <= 2; dx++) {
+                    const nx = Math.min(Math.max(x + dx, 0), N - 1);
+                    const ny = Math.min(Math.max(y + dy, 0), N - 1);
+                    sum   += map[ny * N + nx] * GAUSS_K5[k];
+                    total += GAUSS_K5[k];
+                    k++;
+                }
+            }
+            out[y * N + x] = sum / total;
+        }
+    }
+    return out;
+}
+
+// ─── Diamond-Square ───────────────────────────────────────────────────────────
+// seedRow:  última linha do chunk anterior — garante altura idêntica na costura.
+// seedRow2: penúltima linha do chunk anterior — usada para extrapolar a
+//           inclinação e alimentar o feathering, garantindo que a costura
+//           também seja suave em derivada (sem "dobra" visível).
+
+function diamondSquare(seedRow = null, seedRow2 = null) {
     const N   = COLS;
     const map = new Float32Array(N * N);
 
     const get   = (x, y) => map[y * N + x];
     const set   = (x, y, v) => { map[y * N + x] = v; };
     const rand  = (s) => (Math.random() * 2 - 1) * s;
-    const clamp = (v) => Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, v));
+    // const clamp = (v) => Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, v));
+    // const clamp = (v) => Math.min(MAX_HEIGHT, v);
+    const clamp = (v) => Math.max(MIN_HEIGHT, MAX_HEIGHT - Math.abs(v - MAX_HEIGHT));
 
     function generateMountainProfile() {
         const profile   = new Float32Array(N);
@@ -300,48 +376,53 @@ function diamondSquare(seedRow = null) {
         }
     }
 
-    // Suavização gaussiana 5×5 — elimina arestas pontudas sem achatar picos
-    const k5 = [
-         1,  4,  6,  4,  1,
-         4, 16, 24, 16,  4,
-         6, 24, 36, 24,  6,
-         4, 16, 24, 16,  4,
-         1,  4,  6,  4,  1,
-    ];
-    const smooth = new Float32Array(N * N);
-    for (let y = 0; y < N; y++) {
-        for (let x = 0; x < N; x++) {
-            let sum = 0, total = 0, k = 0;
-            for (let dy = -2; dy <= 2; dy++) {
-                for (let dx = -2; dx <= 2; dx++) {
-                    const nx = Math.min(Math.max(x + dx, 0), N - 1);
-                    const ny = Math.min(Math.max(y + dy, 0), N - 1);
-                    sum   += map[ny * N + nx] * k5[k];
-                    total += k5[k];
-                    k++;
-                }
-            }
-            smooth[y * N + x] = sum / total;
-        }
+    // Múltiplas passadas de blur gaussiano 5×5 — elimina o serrilhado fino
+    // (arestas abruptas) preservando picos e vales de maior escala.
+    let smoothed = map;
+    for (let pass = 0; pass < SMOOTH_PASSES; pass++) {
+        smoothed = gaussianBlurPass(smoothed, N);
     }
-    smooth.forEach((v, i) => { map[i] = v; });
+    smoothed.forEach((v, i) => { map[i] = v; });
 
-    // Re-fixar seedRow após suavização: a gaussiana 5×5 com padding espelhado
-    // altera levemente os vértices da linha 0, fazendo a borda do chunk
-    // divergir do seedRow que o chunk anterior exportou.
-    // Sobrescrever aqui garante costura perfeita independente do kernel.
+    // Re-fixar seedRow após o blur: o kernel com padding espelhado altera
+    // levemente os vértices da linha 0, fazendo a borda do chunk divergir do
+    // seedRow que o chunk anterior exportou. Sobrescrever aqui garante
+    // costura com altura idêntica, independente do kernel.
     if (seedRow) {
         for (let x = 0; x < N; x++) map[x] = seedRow[x];
+
+        // Feathering da costura: além de bater a altura na linha 0, as
+        // próximas SEAM_FEATHER_ROWS linhas são misturadas com a extrapolação
+        // linear da inclinação que o chunk anterior tinha ao chegar na borda
+        // (seedRow - seedRow2 = tendência). Isso garante continuidade também
+        // na derivada, eliminando a "dobra"/crista visível na transição entre
+        // planos. O peso decai suavemente, então o relevo volta a ser
+        // totalmente independente (variado) longe da costura.
+        if (seedRow2) {
+            const trend = new Float32Array(N);
+            for (let x = 0; x < N; x++) trend[x] = seedRow[x] - seedRow2[x];
+
+            const K = Math.min(SEAM_FEATHER_ROWS, N - 1);
+            for (let row = 1; row <= K; row++) {
+                const t      = row / (K + 1);
+                const weight = (1 - t) * (1 - t); // decaimento quadrático suave
+                for (let x = 0; x < N; x++) {
+                    const idx    = row * N + x;
+                    const target = clamp(seedRow[x] + trend[x] * row);
+                    map[idx]     = map[idx] * (1 - weight) + target * weight;
+                }
+            }
+        }
     }
 
     return map;
 }
 
-// ─── Extrai última linha do heightmap ────────────────────────────────────────
+// ─── Extrai uma linha do heightmap ───────────────────────────────────────────
 
-function extractLastRow(map) {
+function extractRow(map, rowIndex) {
     const row = new Float32Array(COLS);
-    for (let x = 0; x < COLS; x++) row[x] = map[(ROWS - 1) * COLS + x];
+    for (let x = 0; x < COLS; x++) row[x] = map[rowIndex * COLS + x];
     return row;
 }
 
@@ -362,10 +443,16 @@ function buildGeometry(map) {
 // ─── Uniforms de fog — atualizadas em runtime pelo fog.js ────────────────────
 // Exportadas para que fog.js possa ajustá-las via GUI sem recompilar shaders.
 
+// fogNear/fogFar agora são calculados em função de plane_height (em vez de
+// valores fixos pensados para um mundo de 2 chunks). Com NUM_ACTIVE_CHUNKS
+// chunks carregados, a neblina pode se estender por mais de um chunk de
+// distância — aumentando a sensação de escala do cenário — mas ainda
+// termina com folga antes do último chunk carregado, então o jogador nunca
+// vê o "pop" de um chunk sendo criado na borda da névoa.
 export const fogUniforms = {
     skyColor: { value: SKY_COLOR },
-    fogNear:  { value: 2500 },   // começa a ~62% do chunk (4000 * 0.62)
-    fogFar:   { value: 4200 },   // cobre a costura
+    fogNear:  { value: plane_height * 1.5 },   // início da névoa bem além de 1 chunk
+    fogFar:   { value: plane_height * 2.6 },   // cobertura ampla, ainda dentro da área carregada
 };
 
 // ─── Group do terreno ─────────────────────────────────────────────────────────
@@ -471,23 +558,23 @@ function samplePositions(count, minDist, area) {
     return out;
 }
 
+// Pequeno "encaixe" vertical: a base da árvore fica ligeiramente abaixo da
+// altura exata da malha, garantindo que nunca haja um gap visível (flutuando)
+// mesmo com pequenas imprecisões do modelo 3D — sem enterrar o tronco.
+const TREE_EMBED = 0.6;
+
 function addTrees(group, geo) {
     samplePositions(numTreesPerPlane, minTreeDistance, treeSpawnArea).forEach(({ x, z }) => {
         const y = getHeightAt(geo, x, z);
         if (y <= WATER_LEVEL + 4) return;
 
-        // Amostrar os 4 vizinhos imediatos e usar o máximo local —
-        // evita que a árvore afunde em encostas íngremes onde o ponto
-        // exato cai entre dois vértices com grande diferença de altura.
-        const offset = plane_width / xS;  // tamanho de uma célula
-        const yN  = getHeightAt(geo, x,          z - offset);
-        const yS_ = getHeightAt(geo, x,          z + offset);
-        const yW  = getHeightAt(geo, x - offset, z);
-        const yE  = getHeightAt(geo, x + offset, z);
-        const yBase = Math.max(y, yN, yS_, yW, yE);
-
+        // Altura exata no ponto onde a árvore será plantada — a mesma usada
+        // pela malha visual, então a base do tronco coincide com a superfície.
+        // (O terreno agora é suave o bastante para que amostrar vizinhos e
+        // usar o máximo, como antes, não seja mais necessário — aquela
+        // abordagem overcorrigia e fazia as árvores flutuarem em encostas.)
         const tree = Math.random() < 0.5 ? createTree(x, z) : createAlternativeTree(x, z);
-        tree.position.y += yBase;
+        tree.position.y += y - TREE_EMBED;
         tree.traverse(child => { if (child.isMesh) child.castShadow = true; });
         group.add(tree);
     });
@@ -495,22 +582,43 @@ function addTrees(group, geo) {
 
 // ─── Criação de chunk ─────────────────────────────────────────────────────────
 
-function createChunk(zOffset, seedRow = null) {
-    const map   = diamondSquare(seedRow);
+function createChunk(zOffset, seedRow = null, seedRow2 = null) {
+    const map   = diamondSquare(seedRow, seedRow2);
     const geo   = buildGeometry(map);
     const group = buildTerrainGroup(geo);
     group.add(createWaterPlane());
     group.position.z = zOffset;
     scene.add(group);
     addTrees(group, geo);
-    return { group, lastRow: extractLastRow(map) };
+    return {
+        group,
+        lastRow:       extractRow(map, ROWS - 1),
+        secondLastRow: extractRow(map, ROWS - 2),
+    };
 }
 
 // ─── Estado ───────────────────────────────────────────────────────────────────
+// Cria a cadeia inicial de NUM_ACTIVE_CHUNKS chunks, cada um encadeado ao
+// anterior via seedRow/seedRow2 (mesma costura suave usada na reposição em
+// runtime), então a cadeia inteira já nasce sem "dobras" nas junções.
 
-const chunk0 = createChunk(0);
-const chunk1 = createChunk(plane_height, chunk0.lastRow);
-let _chunks = [chunk0, chunk1];
+function createInitialChunks(count) {
+    const chunks = [];
+    let previous = null;
+
+    for (let i = 0; i < count; i++) {
+        const zOffset  = i * plane_height;
+        const seedRow  = previous ? previous.lastRow       : null;
+        const seedRow2 = previous ? previous.secondLastRow : null;
+        const chunk    = createChunk(zOffset, seedRow, seedRow2);
+        chunks.push(chunk);
+        previous = chunk;
+    }
+
+    return chunks;
+}
+
+let _chunks = createInitialChunks(NUM_ACTIVE_CHUNKS);
 
 export let plane_array = _chunks.map(c => c.group);
 export const speed = 7;
@@ -524,8 +632,15 @@ export function updatePlane(plane_array, speed) {
 
     if (_chunks[0].group.position.z < -plane_height) {
         scene.remove(_chunks[0].group);
-        const newZ     = _chunks[1].group.position.z + plane_height;
-        const newChunk = createChunk(newZ, _chunks[1].lastRow);
+
+        // O novo chunk sempre continua a partir do chunk mais à frente da
+        // cadeia atual (o último do array), não de uma posição fixa — assim
+        // o número de chunks ativos permanece constante em NUM_ACTIVE_CHUNKS
+        // independente de quantos existirem.
+        const frontChunk = _chunks[_chunks.length - 1];
+        const newZ        = frontChunk.group.position.z + plane_height;
+        const newChunk     = createChunk(newZ, frontChunk.lastRow, frontChunk.secondLastRow);
+
         _chunks.push(newChunk);
         _chunks.shift();
         plane_array.length = 0;

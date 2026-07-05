@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { scene } from './config.js';
 import { airplane } from './airplane.js';
-import { plane_array, speed } from './terrain.js';
+import { plane_array } from './terrain.js';
 import { playEnemyDownSound } from './audio.js'
 
 let pendingSpawns = 0;
@@ -41,7 +41,7 @@ function createEnemyMesh(side) {
         THREE.MathUtils.randFloat(200, 300),
         300
     );
-    group.scale.set(5, 5, 5)
+    group.scale.set(10, 10, 10)
     scene.add(group)
 
     group.speedX = side === 1 ? -3 : 3;

@@ -153,16 +153,24 @@ function createAirplane() {
   airplane.castShadow = true;
 
   //================ DANO / PISCAR =================
-  airplane.hits = 0;
+  // airplane.hits = 0;
+  airplane.hp = 20;
 
   airplane.isHit = false;
   airplane.isInvincible = false;
+  airplane.isDead = false;
 
   airplane.hit = function () {
     if (airplane.isInvincible) return;
 
-    airplane.hits++;
-    hpBar.style.width = `${parseFloat(hpBar.style.width) - 5}%`;
+    // airplane.hits++;
+    airplane.hp--;
+    airplane.updateHpBar();
+
+    if (airplane.hp <= 0) {
+        airplane.isDead = true;
+        document.getElementById("gameOverOverlay").style.display = "flex";
+    }
 
     if (airplane.isHit) return;
     
@@ -201,6 +209,10 @@ function createAirplane() {
         airplane.isHit = false;
       }
     }, 100);
+  };
+
+  airplane.updateHpBar = function () {
+    hpBar.style.width = `${(this.hp / 20) * 100}%`;
   };
   return airplane;
 }

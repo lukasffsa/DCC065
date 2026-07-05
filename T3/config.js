@@ -6,8 +6,8 @@ scene.background = new THREE.Color("rgb(175,207,220)");
 
 export let renderer = initRenderer()
 
-export const plane_width = 7000;
-export const plane_height = 4000;
+export const plane_width = 15000;
+export const plane_height = 1000;
 export const grassColor = "rgb(34, 139, 34)";
 export const meshColor = "rgb(50, 50, 50)";
 
@@ -38,8 +38,8 @@ export const stem_radius = 5;
 export const numTreesPerPlane = 150;
 export const minTreeDistance = 100;
 export const treeSpawnArea = {
-  minX: -3500,
-  maxX: 3500,
+  minX: -7000,
+  maxX: 7000,
   minZ: -plane_height / 2,
   maxZ: plane_height / 2
 };

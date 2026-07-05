@@ -32,14 +32,39 @@ const SMOOTH_PASSES = 3;
 // a inclinação também seja contínua, eliminando a "dobra" visível na costura.
 const SEAM_FEATHER_ROWS = 10;
 
+// ─── Distância de renderização / neblina e nº de chunks ativos ──────────────
+// Exportadas (CAMERA_FAR, FOG_NEAR, FOG_FAR) para serem a ÚNICA fonte de
+// verdade dessas distâncias no projeto inteiro: camera.js importa CAMERA_FAR
+// em vez de repetir o literal "5000", e fog.js importa FOG_NEAR/FOG_FAR para
+// calibrar o range dos sliders do GUI. Antes cada arquivo tinha seu próprio
+// número hardcoded — bastava ajustar um deles para o far-clip da câmera e a
+// distância em que a névoa termina saírem de sincronia de novo, trazendo de
+// volta o "terreno surgindo perto do jogador".
+//
+// Os multiplicadores abaixo foram aumentados (near 1.5→2.6, far 2.6→4.5,
+// far-clip 5000→9000) para ampliar de fato a distância visível — um mundo
+// que se sente maior/mais aberto — mantendo a mesma garantia de segurança:
+// FOG_FAR nunca ultrapassa CAMERA_FAR (agora com 800 de folga, proporcional
+// ao alcance maior).
+export const CAMERA_FAR = 9000;
+export const FOG_NEAR    = plane_height * 2.6;
+export const FOG_FAR      = Math.min(plane_height * 9.5, CAMERA_FAR);
+
 // Quantos chunks ficam carregados e visíveis simultaneamente à frente da
-// câmera. Com apenas 2 (valor antigo), o próximo chunk só existia quando o
-// mais antigo já estava quase saindo de cena — na prática só havia um chunk
-// realmente à frente em boa parte do tempo, o que limitava a sensação de
-// profundidade/movimento e fazia o terreno seguinte "aparecer" de repente
-// saindo da neblina. Com mais chunks encadeados (mesma costura suave), há
-// sempre um trecho bem maior de terreno real carregado à frente.
-const NUM_ACTIVE_CHUNKS = 5;
+// câmera. Precisamos, no mínimo, de chunks suficientes para cobrir a
+// distância em que a névoa (FOG_FAR) já esconde o terreno por completo —
+// senão o jogador chega a ver a "borda" do mundo carregado. A isso somamos
+// uma margem extra de chunks para que a criação do próximo trecho
+// (diamond-square + espalhamento de árvores) sempre aconteça bem longe da
+// área visível, nunca "em cima" do jogador — que era exatamente o sintoma
+// relatado (terreno sendo gerado muito perto).
+// Calculado a partir de FOG_FAR/plane_height em vez de um número fixo, para
+// continuar correto mesmo que plane_height mude no config. Como FOG_FAR
+// aumentou, essa conta já cresce sozinha (mais chunks cobrindo mais mundo);
+// a margem extra também subiu (5→6) para dar ainda mais folga.
+const MIN_CHUNKS_FOR_FOG_COVERAGE = Math.ceil(FOG_FAR / plane_height);
+const EXTRA_BUFFER_CHUNKS         = 6;
+const NUM_ACTIVE_CHUNKS = MIN_CHUNKS_FOR_FOG_COVERAGE + EXTRA_BUFFER_CHUNKS;
 
 export const WATER_LEVEL = -400;
 
@@ -302,7 +327,9 @@ function diamondSquare(seedRow = null, seedRow2 = null) {
     const get   = (x, y) => map[y * N + x];
     const set   = (x, y, v) => { map[y * N + x] = v; };
     const rand  = (s) => (Math.random() * 2 - 1) * s;
-    const clamp = (v) => Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, v));
+    // const clamp = (v) => Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, v));
+    // const clamp = (v) => Math.min(MAX_HEIGHT, v);
+    const clamp = (v) => Math.max(MIN_HEIGHT, MAX_HEIGHT - Math.abs(v - MAX_HEIGHT));
 
     function generateMountainProfile() {
         const profile   = new Float32Array(N);
@@ -440,17 +467,14 @@ function buildGeometry(map) {
 
 // ─── Uniforms de fog — atualizadas em runtime pelo fog.js ────────────────────
 // Exportadas para que fog.js possa ajustá-las via GUI sem recompilar shaders.
+// FOG_NEAR/FOG_FAR já foram calculados acima (junto de NUM_ACTIVE_CHUNKS) e
+// levam em conta tanto plane_height quanto o far-clip da câmera, então nunca
+// ficam desalinhados entre si.
 
-// fogNear/fogFar agora são calculados em função de plane_height (em vez de
-// valores fixos pensados para um mundo de 2 chunks). Com NUM_ACTIVE_CHUNKS
-// chunks carregados, a neblina pode se estender por mais de um chunk de
-// distância — aumentando a sensação de escala do cenário — mas ainda
-// termina com folga antes do último chunk carregado, então o jogador nunca
-// vê o "pop" de um chunk sendo criado na borda da névoa.
 export const fogUniforms = {
     skyColor: { value: SKY_COLOR },
-    fogNear:  { value: plane_height * 1.5 },   // início da névoa bem além de 1 chunk
-    fogFar:   { value: plane_height * 2.6 },   // cobertura ampla, ainda dentro da área carregada
+    fogNear:  { value: FOG_NEAR },
+    fogFar:   { value: FOG_FAR },
 };
 
 // ─── Group do terreno ─────────────────────────────────────────────────────────
@@ -628,7 +652,13 @@ export function updatePlane(plane_array, speed) {
 
     _chunks.forEach(c => { c.group.position.z -= speed; });
 
-    if (_chunks[0].group.position.z < -plane_height) {
+    // "while" em vez de "if": se por qualquer motivo (queda de FPS, aba em
+    // segundo plano, speed muito alto) mais de um chunk cruzar o limiar no
+    // mesmo frame, todos são repostos de uma vez. Com "if" a fila poderia
+    // ficar temporariamente com menos de NUM_ACTIVE_CHUNKS carregados — ou
+    // seja, um buraco/serrilhado bem na frente do jogador.
+    let changed = false;
+    while (_chunks[0].group.position.z < -plane_height) {
         scene.remove(_chunks[0].group);
 
         // O novo chunk sempre continua a partir do chunk mais à frente da
@@ -641,6 +671,10 @@ export function updatePlane(plane_array, speed) {
 
         _chunks.push(newChunk);
         _chunks.shift();
+        changed = true;
+    }
+
+    if (changed) {
         plane_array.length = 0;
         _chunks.forEach(c => plane_array.push(c.group));
     }
