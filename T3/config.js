@@ -7,7 +7,7 @@ scene.background = new THREE.Color("rgb(175,207,220)");
 export let renderer = initRenderer()
 
 export const plane_width = 15000;
-export const plane_height = 1000;
+export const plane_height = 2000;
 export const grassColor = "rgb(34, 139, 34)";
 export const meshColor = "rgb(50, 50, 50)";
 

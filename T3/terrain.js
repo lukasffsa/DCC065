@@ -9,187 +9,107 @@ const yS = 64;
 const COLS = xS + 1;
 const ROWS = yS + 1;
 const MAX_HEIGHT =  90;   // mais alto — picos mais dramáticos
-const MIN_HEIGHT = -500;   // mais fundo — vales mais profundos
+const MIN_HEIGHT = -800;   // mais fundo — vales mais profundos
 
-// Roughness do diamond-square (persistência da amplitude a cada subdivisão).
-// Valores muito baixos (ex.: 0.05) fazem a amplitude do ruído colapsar já nas
-// primeiras 1-2 subdivisões, deixando o relevo definido só pelos vértices
-// grosseiros iniciais — sem ruído fino para suavizar as junções entre eles,
-// o que produz o aspecto "facetado"/blocado com arestas abruptas.
-// 0.55 mantém detalhe em várias escalas (grosseira + média + fina), gerando
-// um relevo com transições orgânicas mesmo mantendo a mesma amplitude total.
-const ROUGHNESS = 0.55;
+const ROUGHNESS = 0.65;
 
-// Quantas passadas de blur gaussiano 5×5 aplicar no final. Cada passada extra
-// remove ruído de alta frequência (o "serrilhado" fino) preservando as
-// ondulações de média/grande escala — é isso que dá a sensação de "montanha
-// suave" em vez de "rocha facetada", sem achatar os picos e vales.
 const SMOOTH_PASSES = 3;
 
-// Quantas linhas, a partir da costura entre chunks, recebem um blend com a
-// extrapolação da inclinação do chunk anterior (feathering). Isso garante
-// não só que a altura bata exatamente na borda (como já acontecia), mas que
-// a inclinação também seja contínua, eliminando a "dobra" visível na costura.
 const SEAM_FEATHER_ROWS = 10;
 
-// ─── Distância de renderização / neblina e nº de chunks ativos ──────────────
-// Exportadas (CAMERA_FAR, FOG_NEAR, FOG_FAR) para serem a ÚNICA fonte de
-// verdade dessas distâncias no projeto inteiro: camera.js importa CAMERA_FAR
-// em vez de repetir o literal "5000", e fog.js importa FOG_NEAR/FOG_FAR para
-// calibrar o range dos sliders do GUI. Antes cada arquivo tinha seu próprio
-// número hardcoded — bastava ajustar um deles para o far-clip da câmera e a
-// distância em que a névoa termina saírem de sincronia de novo, trazendo de
-// volta o "terreno surgindo perto do jogador".
-//
-// Os multiplicadores abaixo foram aumentados (near 1.5→2.6, far 2.6→4.5,
-// far-clip 5000→9000) para ampliar de fato a distância visível — um mundo
-// que se sente maior/mais aberto — mantendo a mesma garantia de segurança:
-// FOG_FAR nunca ultrapassa CAMERA_FAR (agora com 800 de folga, proporcional
-// ao alcance maior).
 export const CAMERA_FAR = 9000;
 export const FOG_NEAR    = plane_height * 2.6;
-export const FOG_FAR      = Math.min(plane_height * 9.5, CAMERA_FAR);
+export const FOG_FAR     = Math.min(plane_height * 9.5, CAMERA_FAR);
 
-// Quantos chunks ficam carregados e visíveis simultaneamente à frente da
-// câmera. Precisamos, no mínimo, de chunks suficientes para cobrir a
-// distância em que a névoa (FOG_FAR) já esconde o terreno por completo —
-// senão o jogador chega a ver a "borda" do mundo carregado. A isso somamos
-// uma margem extra de chunks para que a criação do próximo trecho
-// (diamond-square + espalhamento de árvores) sempre aconteça bem longe da
-// área visível, nunca "em cima" do jogador — que era exatamente o sintoma
-// relatado (terreno sendo gerado muito perto).
-// Calculado a partir de FOG_FAR/plane_height em vez de um número fixo, para
-// continuar correto mesmo que plane_height mude no config. Como FOG_FAR
-// aumentou, essa conta já cresce sozinha (mais chunks cobrindo mais mundo);
-// a margem extra também subiu (5→6) para dar ainda mais folga.
-const MIN_CHUNKS_FOR_FOG_COVERAGE = Math.ceil(FOG_FAR / plane_height);
-const EXTRA_BUFFER_CHUNKS         = 6;
-const NUM_ACTIVE_CHUNKS = MIN_CHUNKS_FOR_FOG_COVERAGE + EXTRA_BUFFER_CHUNKS;
+const MIN_CHUNKS_FOR_VISIBLE_COVERAGE = Math.ceil(CAMERA_FAR / plane_height);
+const EXTRA_BUFFER_CHUNKS = 6;
+const NUM_ACTIVE_CHUNKS = MIN_CHUNKS_FOR_VISIBLE_COVERAGE + EXTRA_BUFFER_CHUNKS;
 
-export const WATER_LEVEL = -400;
-
-// ─── Uniforms compartilhados ──────────────────────────────────────────────────
+export const WATER_LEVEL = -500;
 
 const sharedUniforms = {
     time:         { value: 0.0 },
     sunDirection: { value: new THREE.Vector3(1.5, 3.0, 1.0).normalize() },
 };
 
-// Cor do céu — deve ser idêntica ao scene.background e ao fogColor
-// para que a transição de chunks seja invisível
 const SKY_COLOR = new THREE.Color("rgb(175,207,220)");
 
 const _startTime = performance.now();
 
-// ─── GLSL: Vertex Shader do Terreno ──────────────────────────────────────────
-// vFogDepth: distância euclideana do vértice à câmera em espaço de câmera.
-// Usando length(mvPosition.xyz) em vez de apenas -mvPos.z porque a câmera
-// olha de cima (cameraHeight=180), então vértices distantes têm componente Y
-// significativa — a distância Z subestima a distância real e a fog não aparece
-// onde deveria.
-
-const terrainVertexShader = /* glsl */ `
+const terrainVertexInjection = /* glsl */ `
     varying float vHeight;
-    varying vec3  vNormal;
-    varying vec3  vNormalView;
     varying vec2  vObjXZ;
-    varying vec2  vWorldXZ;
-
-    void main() {
-        vHeight     = position.y;
-        vNormal     = normalize(normal);
-        vNormalView = normalize(normalMatrix * normal);
-        vObjXZ      = position.xz;
-
-        // Posição no mundo (XZ) — usada para a fog baseada em distância
-        // horizontal até a câmera, em vez de distância 3D completa.
-        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-        vWorldXZ = worldPosition.xz;
-
-        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-        gl_Position = projectionMatrix * mvPosition;
-    }
+    varying float vSlopeRaw;
 `;
 
-const terrainFragmentShader = /* glsl */ `
-    varying float vHeight;
-    varying vec3  vNormal;
-    varying vec3  vNormalView;
-    varying vec2  vObjXZ;
-    varying vec2  vWorldXZ;
+const terrainVertexBeginReplace = /* glsl */ `
+    #include <begin_vertex>
 
+    vHeight   = transformed.y;
+    vObjXZ    = transformed.xz;
+    vSlopeRaw = normal.y;
+`;
+
+const terrainFragmentInjection = /* glsl */ `
     uniform float minHeight;
     uniform float maxHeight;
     uniform float waterLevel;
-    uniform vec3  sunDirection;
-    uniform vec3  skyColor;
-    uniform float fogNear;
-    uniform float fogFar;
 
-    float hash(vec2 p) {
+    varying float vHeight;
+    varying vec2  vObjXZ;
+    varying float vSlopeRaw;
+
+    float terrainHash(vec2 p) {
         p  = fract(p * vec2(127.1, 311.7));
         p += dot(p, p + 74.1);
         return fract(p.x * p.y);
     }
 
-    float vnoise(vec2 p) {
+    float terrainNoise(vec2 p) {
         vec2 i = floor(p);
         vec2 f = fract(p);
         f = f * f * (3.0 - 2.0 * f);
         return mix(
-            mix(hash(i),                  hash(i + vec2(1.0, 0.0)), f.x),
-            mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x),
+            mix(terrainHash(i),                  terrainHash(i + vec2(1.0, 0.0)), f.x),
+            mix(terrainHash(i + vec2(0.0, 1.0)), terrainHash(i + vec2(1.0, 1.0)), f.x),
             f.y
         );
     }
 
-    float fbm(vec2 p) {
+    float terrainFbm(vec2 p) {
         float v = 0.0, amp = 0.5;
         for (int i = 0; i < 6; i++) {
-            v   += amp * vnoise(p);
+            v   += amp * terrainNoise(p);
             p   *= 2.03;
             amp *= 0.5;
         }
         return v;
     }
 
-    vec3 colorSand(vec2 uv)  { float n = fbm(uv *  7.0); return mix(vec3(0.74,0.66,0.42), vec3(0.91,0.83,0.60), n); }
-    vec3 colorGrass(vec2 uv) { float n = fbm(uv * 12.0); return mix(vec3(0.13,0.36,0.07), vec3(0.29,0.57,0.19), n); }
-    vec3 colorRock(vec2 uv)  { float n = fbm(uv * 19.0); return mix(vec3(0.34,0.29,0.23), vec3(0.55,0.49,0.41), n); }
-    vec3 colorSnow(vec2 uv)  { float n = fbm(uv *  5.0) * 0.07; return vec3(0.89+n, 0.93+n, 0.97); }
+    vec3 terrainColorSand(vec2 uv)  { float n = terrainFbm(uv *  7.0); return mix(vec3(0.74,0.66,0.42), vec3(0.91,0.83,0.60), n); }
+    vec3 terrainColorGrass(vec2 uv) { float n = terrainFbm(uv * 12.0); return mix(vec3(0.13,0.36,0.07), vec3(0.29,0.57,0.19), n); }
+    vec3 terrainColorRock(vec2 uv)  { float n = terrainFbm(uv * 19.0); return mix(vec3(0.34,0.29,0.23), vec3(0.55,0.49,0.41), n); }
+    vec3 terrainColorSnow(vec2 uv)  { float n = terrainFbm(uv *  5.0) * 0.07; return vec3(0.89+n, 0.93+n, 0.97); }
+`;
 
-    void main() {
-        vec2 uv = vObjXZ * 0.018;
+const terrainFragmentMapReplace = /* glsl */ `
+    #include <map_fragment>
 
-        float h  = clamp((vHeight  - minHeight) / (maxHeight - minHeight), 0.0, 1.0);
-        float wh = clamp((waterLevel - minHeight) / (maxHeight - minHeight), 0.0, 1.0);
-        float ha = clamp((h - wh) / max(1.0 - wh, 0.001), 0.0, 1.0);
+    vec2 tuv = vObjXZ * 0.018;
 
-        float slope = 1.0 - clamp(vNormal.y, 0.0, 1.0);
+    float th  = clamp((vHeight - minHeight) / (maxHeight - minHeight), 0.0, 1.0);
+    float twh = clamp((waterLevel - minHeight) / (maxHeight - minHeight), 0.0, 1.0);
+    float tha = clamp((th - twh) / max(1.0 - twh, 0.001), 0.0, 1.0);
 
-        vec3 col = colorSand(uv);
-        col = mix(col, colorGrass(uv), smoothstep(0.06, 0.22, ha));
-        col = mix(col, colorRock(uv),  smoothstep(0.40, 0.60, ha));
-        col = mix(col, colorSnow(uv),  smoothstep(0.72, 0.88, ha));
-        col = mix(col, colorRock(uv),  smoothstep(0.30, 0.64, slope));
+    float tslope = 1.0 - clamp(vSlopeRaw, 0.0, 1.0);
 
-        float diff = max(dot(normalize(vNormalView), normalize(sunDirection)), 0.0);
-        col *= 0.28 + 0.72 * diff;
+    vec3 tcol = terrainColorSand(tuv);
+    tcol = mix(tcol, terrainColorGrass(tuv), smoothstep(0.06, 0.22, tha));
+    tcol = mix(tcol, terrainColorRock(tuv),  smoothstep(0.40, 0.60, tha));
+    tcol = mix(tcol, terrainColorSnow(tuv),  smoothstep(0.72, 0.88, tha));
+    tcol = mix(tcol, terrainColorRock(tuv),  smoothstep(0.30, 0.64, tslope));
 
-        // Fog baseada em distância HORIZONTAL (XZ) até a câmera, não em
-        // distância 3D completa. A versão anterior (length(mvPosition.xyz))
-        // incluía a diferença de altura entre vértice e câmera — como a
-        // câmera é elevada, picos altos "ganhavam" distância extra só por
-        // subirem em direção à altura da câmera, fazendo a neblina se colar
-        // especificamente nas encostas mais altas (a "parede" visível).
-        // Distância horizontal ignora a elevação do relevo e dá uma neblina
-        // uniforme, baseada só em quão longe o terreno está no plano do chão.
-        float fogDist   = length(vWorldXZ - cameraPosition.xz);
-        float fogFactor = clamp((fogDist - fogNear) / max(fogFar - fogNear, 0.001), 0.0, 1.0);
-        col = mix(col, skyColor, fogFactor);
-
-        gl_FragColor = vec4(col, 1.0);
-    }
+    diffuseColor = vec4(tcol, diffuseColor.a);
 `;
 
 // ─── GLSL: Vertex Shader da Água ─────────────────────────────────────────────
@@ -270,8 +190,6 @@ const waterFragmentShader = /* glsl */ `
         float fresnel = pow(1.0 - max(dot(norm, viewDir), 0.0), 3.0);
         float alpha   = mix(0.52, 0.93, fresnel);
 
-        // Fog baseada em distância horizontal (XZ) até a câmera — mesma
-        // lógica do terreno, evita qualquer viés de altura/ondulação da água.
         float fogDist   = length(vWorldPos.xz - cameraPosition.xz);
         float fogFactor = clamp((fogDist - fogNear) / max(fogFar - fogNear, 0.001), 0.0, 1.0);
         col = mix(col, skyColor, fogFactor);
@@ -280,11 +198,64 @@ const waterFragmentShader = /* glsl */ `
     }
 `;
 
-// ─── Blur gaussiano 5×5 (uma passada) ────────────────────────────────────────
-// Extraído para função separada para poder ser aplicado múltiplas vezes —
-// múltiplas passadas de um kernel pequeno aproximam um kernel maior e mais
-// suave, removendo o ruído de alta frequência responsável pelo aspecto
-// "facetado" sem achatar as ondulações de média/grande escala.
+// ─── Ruído 2D para o relevo macro (cadeias de montanha) ────────────────────
+// Puramente funcional: hashNoise/valueNoise2D são funções determinísticas de
+// (x, y) — não dependem de Math.random nem de estado por chunk, então
+// amostrar a mesma coordenada de mundo duas vezes (de chunks diferentes)
+// sempre dá o mesmo resultado. É isso que garante continuidade perfeita nas
+// costuras sem precisar de nenhum "seed" especial para o relevo macro.
+
+function hashNoise(x, y) {
+    const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
+    return s - Math.floor(s);
+}
+
+function valueNoise2D(x, y) {
+    const xi = Math.floor(x), yi = Math.floor(y);
+    const xf = x - xi,        yf = y - yi;
+    const u  = xf * xf * (3 - 2 * xf);
+    const v  = yf * yf * (3 - 2 * yf);
+
+    const n00 = hashNoise(xi,     yi);
+    const n10 = hashNoise(xi + 1, yi);
+    const n01 = hashNoise(xi,     yi + 1);
+    const n11 = hashNoise(xi + 1, yi + 1);
+
+    const nx0 = n00 + (n10 - n00) * u;
+    const nx1 = n01 + (n11 - n01) * u;
+    return nx0 + (nx1 - nx0) * v; // 0..1
+}
+
+// Ridged fbm: em vez do fbm "suave" comum, cada oitava vira `1 - |2n-1|`,
+// o que produz cristas nítidas e vales bem definidos — a assinatura visual
+// clássica de cadeias de montanha reais (ridged multifractal), bem diferente
+// do aspecto uniforme/ondulado de um fbm normal.
+function ridgedFbm2D(x, y, octaves = 5) {
+    let sum = 0, amp = 0.5, freq = 1.0, norm = 0;
+    for (let i = 0; i < octaves; i++) {
+        const n     = valueNoise2D(x * freq, y * freq);
+        const ridge = 1.0 - Math.abs(2.0 * n - 1.0); // 0 nos vales, 1 nas cristas
+        sum  += ridge * ridge * amp;
+        norm += amp;
+        amp  *= 0.5;
+        freq *= 2.05; // levemente >2 evita repetição de padrão entre oitavas
+    }
+    return sum / norm; // 0..1
+}
+
+// MACRO_FREQ:  controla o "tamanho" das cadeias de montanha no mundo —
+//              menor = montanhas mais largas/espaçadas; maior = mais
+//              compactas e frequentes.
+// MACRO_AMPLITUDE: amplitude vertical total do relevo macro.
+// MACRO_BIAS:  desloca o relevo para baixo (0 a 1). Como MIN_HEIGHT é bem
+//              mais fundo que MAX_HEIGHT é alto (relevo assimétrico, tipo
+//              "muitos vales, poucos picos"), um bias > 0.5 garante que boa
+//              parte do terreno fique baixo o bastante para o nível da água
+//              aparecer com frequência, reservando os picos (ridge≈1) para
+//              os poucos pontos mais altos.
+const MACRO_FREQ      = 1 / 1400;
+const MACRO_AMPLITUDE = 900;
+const MACRO_BIAS      = 0.65;
 
 const GAUSS_K5 = [
      1,  4,  6,  4,  1,
@@ -314,43 +285,20 @@ function gaussianBlurPass(map, N) {
     return out;
 }
 
-// ─── Diamond-Square ───────────────────────────────────────────────────────────
-// seedRow:  última linha do chunk anterior — garante altura idêntica na costura.
-// seedRow2: penúltima linha do chunk anterior — usada para extrapolar a
-//           inclinação e alimentar o feathering, garantindo que a costura
-//           também seja suave em derivada (sem "dobra" visível).
-
-function diamondSquare(seedRow = null, seedRow2 = null) {
+function diamondSquare(seedRow = null, seedRow2 = null, zOffset = 0) {
     const N   = COLS;
     const map = new Float32Array(N * N);
 
     const get   = (x, y) => map[y * N + x];
     const set   = (x, y, v) => { map[y * N + x] = v; };
     const rand  = (s) => (Math.random() * 2 - 1) * s;
-    // const clamp = (v) => Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, v));
-    // const clamp = (v) => Math.min(MAX_HEIGHT, v);
-    const clamp = (v) => Math.max(MIN_HEIGHT, MAX_HEIGHT - Math.abs(v - MAX_HEIGHT));
 
-    function generateMountainProfile() {
-        const profile   = new Float32Array(N);
-        // baseShift maior = cristas e vales mais deslocados verticalmente
-        const baseShift = (Math.random() - 0.5) * 120;
-        profile[0]      = rand(200) + baseShift;
-        profile[N - 1]  = rand(160) + baseShift;
-
-        // disp maior e decaimento mais lento = variações mais amplas e longas
-        function midpoint(left, right, disp) {
-            if (right - left <= 1) return;
-            const mid    = Math.floor((left + right) / 2);
-            profile[mid] = (profile[left] + profile[right]) / 2 + rand(disp);
-            midpoint(left, mid,   disp * 0.72);  // decaimento mais lento = mais rugosidade
-            midpoint(mid,  right, disp * 0.72);
-        }
-        midpoint(0, N - 1, 130);
-        return profile;
-    }
-
-    const mountains = generateMountainProfile();
+    // Clamp de verdade — a versão anterior (`MAX_HEIGHT - Math.abs(v - MAX_HEIGHT)`)
+    // não cortava valores acima de MAX_HEIGHT, ela os REFLETIA de volta para baixo
+    // (dobra/fold). Isso fazia qualquer overshoot do diamond-square virar um vale
+    // artificial logo ao lado de um pico, produzindo relevo errático e contribuindo
+    // para o aspecto "facetado"/em faixas.
+    const clamp = (v) => Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, v));
 
     if (seedRow) {
         for (let x = 0; x < N; x++) set(x, 0, seedRow[x]);
@@ -364,7 +312,7 @@ function diamondSquare(seedRow = null, seedRow2 = null) {
     }
 
     let step  = N - 1;
-    let scale = 220;  // amplitude inicial maior = ondulações mais dramáticas
+    let scale = 220;
 
     while (step > 1) {
         const half = step >> 1;
@@ -392,37 +340,42 @@ function diamondSquare(seedRow = null, seedRow2 = null) {
         scale *= ROUGHNESS;
     }
 
-    // Perfil de montanhas com mais influência — oscilações mais dramáticas
+    // ─── Relevo macro (cadeias de montanha) ────────────────────────────────
+    // Substitui o antigo "perfil 1D * rampa por chunk" — aquela abordagem
+    // variava só em X e crescia de 0 até o máximo dentro de CADA chunk,
+    // sempre reiniciando na costura seguinte. Visualmente isso aparecia
+    // como faixas horizontais repetidas a cada `plane_height`, sem relação
+    // com relevo real.
+    //
+    // Agora o relevo de grande escala vem de um ridged-fbm 2D CONTÍNUO,
+    // amostrado em coordenadas de MUNDO (worldX, worldZ). Como worldZ cresce
+    // monotonicamente com zOffset (nunca reinicia a cada chunk), a mesma
+    // posição de mundo sempre produz o mesmo valor de relevo — a costura
+    // entre chunks fica contínua e não há qualquer periodicidade artificial:
+    // só picos e vales "de verdade", determinados pela variação real do
+    // ruído em X e Z.
     for (let y = 0; y < N; y++) {
-        const factor = y / (N - 1);
+        const worldZ = zOffset + (y / (N - 1)) * plane_height;
         for (let x = 0; x < N; x++) {
-            const idx = y * N + x;
-            map[idx]  = clamp(map[idx] + mountains[x] * factor * 7.0);
+            const worldX = (x / (N - 1) - 0.5) * plane_width;
+            const idx    = y * N + x;
+
+            const ridge = ridgedFbm2D(worldX * MACRO_FREQ, worldZ * MACRO_FREQ);
+            const macro = (ridge - MACRO_BIAS) * MACRO_AMPLITUDE;
+
+            map[idx] = clamp(map[idx] + macro);
         }
     }
 
-    // Múltiplas passadas de blur gaussiano 5×5 — elimina o serrilhado fino
-    // (arestas abruptas) preservando picos e vales de maior escala.
     let smoothed = map;
     for (let pass = 0; pass < SMOOTH_PASSES; pass++) {
         smoothed = gaussianBlurPass(smoothed, N);
     }
     smoothed.forEach((v, i) => { map[i] = v; });
 
-    // Re-fixar seedRow após o blur: o kernel com padding espelhado altera
-    // levemente os vértices da linha 0, fazendo a borda do chunk divergir do
-    // seedRow que o chunk anterior exportou. Sobrescrever aqui garante
-    // costura com altura idêntica, independente do kernel.
     if (seedRow) {
         for (let x = 0; x < N; x++) map[x] = seedRow[x];
 
-        // Feathering da costura: além de bater a altura na linha 0, as
-        // próximas SEAM_FEATHER_ROWS linhas são misturadas com a extrapolação
-        // linear da inclinação que o chunk anterior tinha ao chegar na borda
-        // (seedRow - seedRow2 = tendência). Isso garante continuidade também
-        // na derivada, eliminando a "dobra"/crista visível na transição entre
-        // planos. O peso decai suavemente, então o relevo volta a ser
-        // totalmente independente (variado) longe da costura.
         if (seedRow2) {
             const trend = new Float32Array(N);
             for (let x = 0; x < N; x++) trend[x] = seedRow[x] - seedRow2[x];
@@ -430,7 +383,7 @@ function diamondSquare(seedRow = null, seedRow2 = null) {
             const K = Math.min(SEAM_FEATHER_ROWS, N - 1);
             for (let row = 1; row <= K; row++) {
                 const t      = row / (K + 1);
-                const weight = (1 - t) * (1 - t); // decaimento quadrático suave
+                const weight = (1 - t) * (1 - t);
                 for (let x = 0; x < N; x++) {
                     const idx    = row * N + x;
                     const target = clamp(seedRow[x] + trend[x] * row);
@@ -443,15 +396,11 @@ function diamondSquare(seedRow = null, seedRow2 = null) {
     return map;
 }
 
-// ─── Extrai uma linha do heightmap ───────────────────────────────────────────
-
 function extractRow(map, rowIndex) {
     const row = new Float32Array(COLS);
     for (let x = 0; x < COLS; x++) row[x] = map[rowIndex * COLS + x];
     return row;
 }
-
-// ─── Geometria do terreno ─────────────────────────────────────────────────────
 
 function buildGeometry(map) {
     const geo = new THREE.PlaneGeometry(plane_width, plane_height, xS, yS);
@@ -465,37 +414,32 @@ function buildGeometry(map) {
     return geo;
 }
 
-// ─── Uniforms de fog — atualizadas em runtime pelo fog.js ────────────────────
-// Exportadas para que fog.js possa ajustá-las via GUI sem recompilar shaders.
-// FOG_NEAR/FOG_FAR já foram calculados acima (junto de NUM_ACTIVE_CHUNKS) e
-// levam em conta tanto plane_height quanto o far-clip da câmera, então nunca
-// ficam desalinhados entre si.
-
-export const fogUniforms = {
-    skyColor: { value: SKY_COLOR },
-    fogNear:  { value: FOG_NEAR },
-    fogFar:   { value: FOG_FAR },
-};
-
-// ─── Group do terreno ─────────────────────────────────────────────────────────
-
 function buildTerrainGroup(geo) {
-    const terrainMat = new THREE.ShaderMaterial({
-        uniforms: {
-            minHeight:    { value: MIN_HEIGHT },
-            maxHeight:    { value: MAX_HEIGHT },
-            waterLevel:   { value: WATER_LEVEL },
-            sunDirection: sharedUniforms.sunDirection,
-            skyColor:     fogUniforms.skyColor,
-            fogNear:      fogUniforms.fogNear,
-            fogFar:       fogUniforms.fogFar,
-        },
-        vertexShader:   terrainVertexShader,
-        fragmentShader: terrainFragmentShader,
+    const terrainMat = new THREE.MeshStandardMaterial({
+        color:     0xffffff,
+        roughness: 1.0,
+        metalness: 0.0,
     });
+
+    terrainMat.onBeforeCompile = (shader) => {
+        shader.uniforms.minHeight  = { value: MIN_HEIGHT };
+        shader.uniforms.maxHeight  = { value: MAX_HEIGHT };
+        shader.uniforms.waterLevel = { value: WATER_LEVEL };
+
+        shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', `#include <common>\n${terrainVertexInjection}`)
+            .replace('#include <begin_vertex>', terrainVertexBeginReplace);
+
+        shader.fragmentShader = shader.fragmentShader
+            .replace('#include <common>', `#include <common>\n${terrainFragmentInjection}`)
+            .replace('#include <map_fragment>', terrainFragmentMapReplace);
+
+        terrainMat.userData.shader = shader;
+    };
 
     const solid = new THREE.Mesh(geo, terrainMat);
     solid.receiveShadow = true;
+    solid.castShadow    = true;
 
     const wire = new THREE.LineSegments(
         new THREE.EdgesGeometry(geo, 15),
@@ -509,39 +453,44 @@ function buildTerrainGroup(geo) {
 }
 
 // ─── Plano de água ────────────────────────────────────────────────────────────
+// Água opaca (transparent:false, depthWrite:true) — mas com `fog: true` para
+// que o Three.js preencha sozinho fogColor/fogNear/fogFar a cada frame a
+// partir de scene.fog, e o fragment shader misture a cor final com a névoa.
 
 function createWaterPlane() {
     const geo = new THREE.PlaneGeometry(plane_width, plane_height, 48, 48);
     geo.rotateX(-Math.PI / 2);
 
-    const mesh = new THREE.Mesh(geo, new THREE.ShaderMaterial({
+    const material = new THREE.ShaderMaterial({
         uniforms: {
             time:         sharedUniforms.time,
             sunDirection: sharedUniforms.sunDirection,
-            skyColor:     fogUniforms.skyColor,
-            fogNear:      fogUniforms.fogNear,
-            fogFar:       fogUniforms.fogFar,
+            skyColor:     { value: SKY_COLOR },
+            fogNear:      { value: FOG_NEAR },
+            fogFar:       { value: FOG_FAR },
         },
         vertexShader:   waterVertexShader,
         fragmentShader: waterFragmentShader,
         transparent:    true,
         depthWrite:     false,
         side:           THREE.DoubleSide,
-    }));
+    });
+
+    const mesh = new THREE.Mesh(geo, material);
     mesh.position.y = WATER_LEVEL;
+    mesh.renderOrder = 1;
+    mesh.receiveShadow = false;
+    mesh.frustumCulled = false;
+    mesh.userData.isWater = true;
     return mesh;
 }
-
-// ─── Altura em posição local ──────────────────────────────────────────────────
 
 function getHeightAt(geo, localX, localZ) {
     const pos = geo.attributes.position;
 
-    // Coordenadas normalizadas [0,1]
     const u = Math.min(Math.max((localX + plane_width  / 2) / plane_width,  0), 1);
     const v = Math.min(Math.max((localZ + plane_height / 2) / plane_height, 0), 1);
 
-    // Índices dos quatro vértices vizinhos
     const fx = u * xS;
     const fz = v * yS;
     const x0 = Math.min(Math.floor(fx), xS - 1);
@@ -549,24 +498,19 @@ function getHeightAt(geo, localX, localZ) {
     const x1 = Math.min(x0 + 1, xS);
     const z1 = Math.min(z0 + 1, yS);
 
-    // Pesos de interpolação
     const tx = fx - x0;
     const tz = fz - z0;
 
-    // Alturas dos quatro cantos
     const h00 = pos.getY(z0 * COLS + x0);
     const h10 = pos.getY(z0 * COLS + x1);
     const h01 = pos.getY(z1 * COLS + x0);
     const h11 = pos.getY(z1 * COLS + x1);
 
-    // Interpolação bilinear — altura exata no ponto (localX, localZ)
     return h00 * (1 - tx) * (1 - tz)
          + h10 *      tx  * (1 - tz)
          + h01 * (1 - tx) *      tz
          + h11 *      tx  *      tz;
 }
-
-// ─── Scatter de árvores ───────────────────────────────────────────────────────
 
 function samplePositions(count, minDist, area) {
     const out = [];
@@ -580,9 +524,6 @@ function samplePositions(count, minDist, area) {
     return out;
 }
 
-// Pequeno "encaixe" vertical: a base da árvore fica ligeiramente abaixo da
-// altura exata da malha, garantindo que nunca haja um gap visível (flutuando)
-// mesmo com pequenas imprecisões do modelo 3D — sem enterrar o tronco.
 const TREE_EMBED = 0.6;
 
 function addTrees(group, geo) {
@@ -590,22 +531,20 @@ function addTrees(group, geo) {
         const y = getHeightAt(geo, x, z);
         if (y <= WATER_LEVEL + 4) return;
 
-        // Altura exata no ponto onde a árvore será plantada — a mesma usada
-        // pela malha visual, então a base do tronco coincide com a superfície.
-        // (O terreno agora é suave o bastante para que amostrar vizinhos e
-        // usar o máximo, como antes, não seja mais necessário — aquela
-        // abordagem overcorrigia e fazia as árvores flutuarem em encostas.)
         const tree = Math.random() < 0.5 ? createTree(x, z) : createAlternativeTree(x, z);
         tree.position.y += y - TREE_EMBED;
-        tree.traverse(child => { if (child.isMesh) child.castShadow = true; });
+        tree.traverse(child => {
+            if (child.isMesh) {
+                child.castShadow    = true;
+                child.receiveShadow = true;
+            }
+        });
         group.add(tree);
     });
 }
 
-// ─── Criação de chunk ─────────────────────────────────────────────────────────
-
 function createChunk(zOffset, seedRow = null, seedRow2 = null) {
-    const map   = diamondSquare(seedRow, seedRow2);
+    const map   = diamondSquare(seedRow, seedRow2, zOffset);
     const geo   = buildGeometry(map);
     const group = buildTerrainGroup(geo);
     group.add(createWaterPlane());
@@ -618,11 +557,6 @@ function createChunk(zOffset, seedRow = null, seedRow2 = null) {
         secondLastRow: extractRow(map, ROWS - 2),
     };
 }
-
-// ─── Estado ───────────────────────────────────────────────────────────────────
-// Cria a cadeia inicial de NUM_ACTIVE_CHUNKS chunks, cada um encadeado ao
-// anterior via seedRow/seedRow2 (mesma costura suave usada na reposição em
-// runtime), então a cadeia inteira já nasce sem "dobras" nas junções.
 
 function createInitialChunks(count) {
     const chunks = [];
@@ -645,26 +579,15 @@ let _chunks = createInitialChunks(NUM_ACTIVE_CHUNKS);
 export let plane_array = _chunks.map(c => c.group);
 export const speed = 7;
 
-// ─── Update loop ──────────────────────────────────────────────────────────────
-
 export function updatePlane(plane_array, speed) {
     sharedUniforms.time.value = (performance.now() - _startTime) / 1000;
 
     _chunks.forEach(c => { c.group.position.z -= speed; });
 
-    // "while" em vez de "if": se por qualquer motivo (queda de FPS, aba em
-    // segundo plano, speed muito alto) mais de um chunk cruzar o limiar no
-    // mesmo frame, todos são repostos de uma vez. Com "if" a fila poderia
-    // ficar temporariamente com menos de NUM_ACTIVE_CHUNKS carregados — ou
-    // seja, um buraco/serrilhado bem na frente do jogador.
     let changed = false;
     while (_chunks[0].group.position.z < -plane_height) {
         scene.remove(_chunks[0].group);
 
-        // O novo chunk sempre continua a partir do chunk mais à frente da
-        // cadeia atual (o último do array), não de uma posição fixa — assim
-        // o número de chunks ativos permanece constante em NUM_ACTIVE_CHUNKS
-        // independente de quantos existirem.
         const frontChunk = _chunks[_chunks.length - 1];
         const newZ        = frontChunk.group.position.z + plane_height;
         const newChunk     = createChunk(newZ, frontChunk.lastRow, frontChunk.secondLastRow);
