@@ -11,10 +11,47 @@ import { updatePlayerShoot } from './shooting.js';
 import { updateCollisions } from './collision.js';
 import { createCrosshair } from './target.js';
 import { initAudio, bgMusic } from './audio.js';
+import { updateHealthPacks } from './health_pack.js'; 
+import { loadingManager } from './loadingManager.js';
 
 window.addEventListener('resize', ()=> onWindowResize(camera, renderer), false);
-initAudio(camera);
 
+//================ LOADING SCREEN =================
+loadingManager.onLoad = () => {
+
+    const button = document.getElementById("myBtn");
+
+    button.innerHTML = "Iniciar";
+    button.disabled = false;
+
+    button.addEventListener("click", onButtonPressed);
+    console.log("Loading complete!");
+};
+
+loadingManager.onProgress = (url, loaded, total) => {
+    const button = document.getElementById("myBtn");
+    button.innerHTML = `Loading... ${Math.round((loaded / total) * 100)}%`;
+    console.log(Math.round((loaded / total) * 100))
+};
+
+initAudio(camera, loadingManager);
+
+function onButtonPressed() {
+
+    const loadingScreen = document.getElementById("loading-screen");
+
+    loadingScreen.classList.add("fade-out");
+
+    loadingScreen.addEventListener("transitionend", (e) => {
+        e.target.remove();
+    });
+
+    gameStarted = true;
+    mira.resume();
+
+    if (bgMusic.buffer)
+        bgMusic.play();
+}
 
 //================ PAUSA =================
 
@@ -68,6 +105,9 @@ renderer.domElement.addEventListener('click', ()=>{
 
 });
 
+// reiniciar
+document.getElementById("restartBtn").onclick = () => location.reload();
+
 //================ VELOCIDADE =================
 
 const commands = document.createElement("div");
@@ -101,14 +141,14 @@ document.addEventListener('keydown', (event)=>{
 
   else if(event.code==='Digit2'){
 
-    speed=7;
+    speed=10;
     speedText.innerHTML = "Velocidade: NORMAL";
 
   }
 
   else if(event.code==='Digit3'){
 
-    speed=9;
+    speed=15;
     speedText.innerHTML = "Velocidade: RÁPIDA";
 
   }
@@ -132,7 +172,7 @@ window.addEventListener('keydown', (event) => {
 //================ SOMBRAS =================
 
 export let dirLight = new THREE.DirectionalLight("rgb(200,200,200)", 5);
-dirLight.position.set(500,800,-350);
+dirLight.position.set(0,800,-350);
 dirLight.castShadow = true;
 dirLight.shadow.mapSize.width = 2048;
 dirLight.shadow.mapSize.height = 2048;
@@ -147,7 +187,9 @@ scene.add(dirLight);
 //================ INIT =================
 
 buildInterface(dirLight);
+let gameStarted = false;
 const mira = createCrosshair(renderer);
+mira.pause(); 
 animate();
 
 //================ LOOP =================
@@ -157,7 +199,12 @@ function animate(){
   requestAnimationFrame(animate);
   stats.update();
 
-  if(!paused){
+  if (!gameStarted) {
+        renderer.render(scene, camera);
+        return;
+    }
+
+  if(!paused && !airplane.isDead){
       airplane.propeller.rotation.z +=10;
       updatePlane(plane_array, speed);
       updateAirplane();
@@ -165,6 +212,12 @@ function animate(){
       updatePlayerShoot(airplane);
       updateEnemies(speed);
       updateCollisions(airplane);
+      updateHealthPacks(speed, airplane);
+  }
+
+  if(airplane.isDead){
+    bgMusic.pause();
+    mira.pause();
   }
 
   renderer.render(scene, camera);
