@@ -1,0 +1,110 @@
+#loading-screen {
+    position: fixed;
+    inset: 0;
+
+    background-image: url("background_cg.png");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+
+    z-index: 9999;
+    transition: opacity 0.8s;
+}
+
+#loading-screen.fade-out {
+    opacity: 0;
+    pointer-events: none;
+}
+
+#myBtn {
+    margin-top: 25px;
+    padding: 14px 32px;
+
+    font-size: 20px;
+    font-weight: bold;
+    font-family: Arial, sans-serif;
+    letter-spacing: 1px;
+
+    color: white;
+    background: rgba(20, 20, 20, 0.8);
+
+    border: 2px solid white;
+    border-radius: 8px;
+
+    cursor: pointer;
+
+    transition: background 0.25s,
+                transform 0.15s,
+                box-shadow 0.25s;
+}
+
+#myBtn:hover:not(:disabled) {
+    background: rgba(220, 30, 30, 0.9);
+    box-shadow: 0 0 15px rgba(255, 60, 60, 0.8);
+    transform: scale(1.05);
+}
+
+#myBtn:active:not(:disabled) {
+    transform: scale(0.98);
+}
+
+#myBtn:disabled {
+    cursor: default;
+    color: rgba(255, 255, 255, 0.7);
+    border-color: rgba(255, 255, 255, 0.5);
+    background: rgba(30, 30, 30, 0.6);
+}
+
+#gameOverOverlay {
+    position: fixed;
+    inset: 0;
+    display: none;              /* Inicialmente escondido */
+    justify-content: center;
+    align-items: center;
+
+    background: rgba(180, 0, 0, 0.45); /* Vermelho translúcido */
+
+    z-index: 9999;
+}
+
+#gameOverBox {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 25px;
+}
+
+#gameOverBox h1 {
+    margin: 0;
+
+    color: white;
+    font-size: 64px;
+    font-family: Arial, sans-serif;
+    text-shadow: 2px 2px 8px black;
+}
+
+#restartBtn {
+    padding: 15px 35px;
+
+    font-size: 24px;
+    font-weight: bold;
+
+    border: none;
+    border-radius: 10px;
+
+    cursor: pointer;
+
+    background: white;
+    color: #b00000;
+
+    transition: 0.2s;
+}
+
+#restartBtn:hover {
+    transform: scale(1.05);
+}

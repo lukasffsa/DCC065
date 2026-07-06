@@ -1,0 +1,223 @@
+import * as THREE from 'three';
+import { onWindowResize } from "../libs/util/util.js";
+import { airplane, hpBar, backBar } from './airplane.js';
+import { scene, renderer } from './config.js';
+import { updateAirplane } from './raycast.js';
+import { updateCamera, camera } from './camera.js';
+import { updatePlane, plane_array } from './terrain.js';
+import { buildInterface, stats } from './fog.js';
+import { enemies, updateEnemies } from './enemy.js';
+import { updatePlayerShoot } from './shooting.js';
+import { updateCollisions } from './collision.js';
+import { createCrosshair } from './target.js';
+import { initAudio, bgMusic } from './audio.js';
+import { updateHealthPacks } from './health_pack.js'; 
+import { loadingManager } from './loadingManager.js';
+
+window.addEventListener('resize', ()=> onWindowResize(camera, renderer), false);
+
+//================ LOADING SCREEN =================
+loadingManager.onLoad = () => {
+
+    const button = document.getElementById("myBtn");
+
+    button.innerHTML = "Iniciar";
+    button.disabled = false;
+
+    button.addEventListener("click", onButtonPressed);
+    console.log("Loading complete!");
+};
+
+loadingManager.onProgress = (url, loaded, total) => {
+    const button = document.getElementById("myBtn");
+    button.innerHTML = `Loading... ${Math.round((loaded / total) * 100)}%`;
+    console.log(Math.round((loaded / total) * 100))
+};
+
+initAudio(camera, loadingManager);
+
+function onButtonPressed() {
+
+    const loadingScreen = document.getElementById("loading-screen");
+
+    loadingScreen.classList.add("fade-out");
+
+    loadingScreen.addEventListener("transitionend", (e) => {
+        e.target.remove();
+    });
+
+    gameStarted = true;
+    mira.resume();
+
+    if (bgMusic.buffer)
+        bgMusic.play();
+}
+
+//================ PAUSA =================
+
+const pauseText = document.createElement("div");
+pauseText.innerHTML = "PAUSADO";
+pauseText.style.position = "fixed";
+pauseText.style.top = "50%";
+pauseText.style.left = "50%";
+pauseText.style.transform = "translate(-50%,-50%)";
+pauseText.style.fontSize = "50px";
+pauseText.style.fontWeight = "bold";
+pauseText.style.color = "white";
+pauseText.style.background = "rgba(0,0,0,0.5)";
+pauseText.style.padding = "20px";
+pauseText.style.borderRadius = "10px";
+pauseText.style.display = "none";
+document.body.appendChild(pauseText);
+
+let paused = false;
+
+document.addEventListener('keydown', (event)=>{
+
+  if(event.code === 'Escape'){
+
+    paused = true;
+    pauseText.style.display = "block";
+    mira.pause(); 
+    if(bgMusic.isPlaying) bgMusic.pause();
+  }
+
+  else if(event.code === 'KeyS'){
+    if (bgMusic.buffer) { 
+      if (bgMusic.isPlaying) {
+        bgMusic.pause();
+      } else {
+        bgMusic.play();
+      }
+    }
+  }
+
+});
+renderer.domElement.addEventListener('click', ()=>{
+
+  if(paused){
+
+    paused = false;
+    pauseText.style.display = "none";
+    mira.resume(); // restaura mira e esconde cursor
+    if(bgMusic.buffer) bgMusic.play();
+  }
+
+});
+
+// reiniciar
+document.getElementById("restartBtn").onclick = () => location.reload();
+
+//================ VELOCIDADE =================
+
+const commands = document.createElement("div");
+commands.innerHTML = "G - Invencibilidade<br>S - Musica";
+commands.style.position = "fixed";
+commands.style.bottom = "20px";
+commands.style.right = "20px";
+commands.style.color = "white";
+commands.style.background = "rgba(0,0,0,.5)";
+commands.style.padding = "10px";
+document.body.appendChild(commands);
+
+let speed = 7;
+const speedText = document.createElement("div");
+speedText.innerHTML = "Velocidade: NORMAL";
+speedText.style.position = "fixed";
+speedText.style.bottom = "20px";
+speedText.style.left = "20px";
+speedText.style.color = "white";
+speedText.style.background = "rgba(0,0,0,.5)";
+speedText.style.padding = "10px";
+document.body.appendChild(speedText);
+document.addEventListener('keydown', (event)=>{
+
+  if(event.code==='Digit1'){
+
+    speed=5;
+    speedText.innerHTML = "Velocidade: LENTA";
+
+  }
+
+  else if(event.code==='Digit2'){
+
+    speed=10;
+    speedText.innerHTML = "Velocidade: NORMAL";
+
+  }
+
+  else if(event.code==='Digit3'){
+
+    speed=15;
+    speedText.innerHTML = "Velocidade: RÁPIDA";
+
+  }
+
+}
+);
+
+// inv aviao
+window.addEventListener('keydown', (event) => {
+  if (event.key.toLowerCase() === 'g') {
+    airplane.isInvincible = !airplane.isInvincible; 
+
+    if (airplane.isInvincible) {
+      backBar.style.boxShadow = '0 0 15px #ffff00';
+    } else {
+      backBar.style.boxShadow = 'none';
+    }
+  }
+});
+
+//================ SOMBRAS =================
+
+export let dirLight = new THREE.DirectionalLight("rgb(200,200,200)", 5);
+dirLight.position.set(0,800,-350);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.width = 2048;
+dirLight.shadow.mapSize.height = 2048;
+dirLight.shadow.camera.left = -5000;
+dirLight.shadow.camera.right = 5000;
+dirLight.shadow.camera.top = 5000;
+dirLight.shadow.camera.bottom = -5000;
+dirLight.shadow.camera.near = 1;
+dirLight.shadow.camera.far = 10000;
+scene.add(dirLight);
+
+//================ INIT =================
+
+buildInterface(dirLight);
+let gameStarted = false;
+const mira = createCrosshair(renderer);
+mira.pause(); 
+animate();
+
+//================ LOOP =================
+
+function animate(){
+
+  requestAnimationFrame(animate);
+  stats.update();
+
+  if (!gameStarted) {
+        renderer.render(scene, camera);
+        return;
+    }
+
+  if(!paused && !airplane.isDead){
+      updatePlane(plane_array, speed);
+      updateAirplane();
+      updateCamera();
+      updatePlayerShoot(airplane);
+      updateEnemies(speed);
+      updateCollisions(airplane);
+      updateHealthPacks(speed, airplane);
+  }
+
+  if(airplane.isDead){
+    bgMusic.pause();
+    mira.pause();
+  }
+
+  renderer.render(scene, camera);
+}
